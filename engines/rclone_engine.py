@@ -42,6 +42,7 @@ class RcloneEngine:
             'eta_seconds': 0,
             'status': 'pending'
         }
+        self._progress_lock = threading.Lock()  # Protect progress dict access
         self.log_file = Path.home() / 'backup-manager' / 'logs' / f'rclone_{job_id}.log'
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -99,6 +100,19 @@ class RcloneEngine:
         try:
             if self.process:
                 self.process.terminate()
+
+                # Drain remaining output to capture final progress
+                try:
+                    # Read remaining lines from stderr (where rclone outputs stats)
+                    for _ in range(10):  # Read up to 10 lines
+                        line = self.process.stderr.readline()
+                        if not line:
+                            break
+                        self._parse_progress(line)
+                        self.log(line.strip())
+                except Exception:
+                    pass  # Non-fatal if drain fails
+
                 self.process.wait(timeout=5)
             self.running = False
             self.progress['status'] = 'paused'
@@ -117,7 +131,8 @@ class RcloneEngine:
 
     def get_progress(self):
         """Get current progress"""
-        return self.progress.copy()
+        with self._progress_lock:
+            return self.progress.copy()
 
     def _monitor_output(self):
         """Monitor rclone output in background thread with auto-retry"""
@@ -243,26 +258,28 @@ class RcloneEngine:
                 return
 
             # Parse: "Transferred:   1.234 MiB / 10.234 MiB, 12%, 2.456 MiB/s, ETA 3s"
+            updates = {}
+
             # Extract bytes transferred
             transferred_match = re.search(r'Transferred:\s+[\d.]+\s*(\w+)\s*/\s*([\d.]+\s*\w+),\s*(\d+)%', line)
             if transferred_match:
                 # Parse percentage
                 percent = int(transferred_match.group(3))
-                self.progress['percent'] = percent
+                updates['percent'] = percent
 
                 # Parse transferred and total
                 transferred_str = line.split('/')[0].split(':')[1].strip()
                 total_str = line.split('/')[1].split(',')[0].strip()
 
-                self.progress['bytes_transferred'] = self._parse_size(transferred_str)
-                self.progress['total_bytes'] = self._parse_size(total_str)
+                updates['bytes_transferred'] = self._parse_size(transferred_str)
+                updates['total_bytes'] = self._parse_size(total_str)
 
             # Parse speed (e.g., "2.456 MiB/s")
             speed_match = re.search(r'([\d.]+)\s*(\w+)/s', line)
             if speed_match:
                 speed_value = float(speed_match.group(1))
                 speed_unit = speed_match.group(2)
-                self.progress['speed_bytes'] = self._parse_size(f"{speed_value} {speed_unit}")
+                updates['speed_bytes'] = self._parse_size(f"{speed_value} {speed_unit}")
 
             # Parse ETA (e.g., "ETA 3s" or "ETA 1m30s" or "ETA 1h2m")
             eta_match = re.search(r'ETA\s+(\d+h)?(\d+m)?(\d+s)?', line)
@@ -270,7 +287,12 @@ class RcloneEngine:
                 hours = int(eta_match.group(1)[:-1]) if eta_match.group(1) else 0
                 minutes = int(eta_match.group(2)[:-1]) if eta_match.group(2) else 0
                 seconds = int(eta_match.group(3)[:-1]) if eta_match.group(3) else 0
-                self.progress['eta_seconds'] = hours * 3600 + minutes * 60 + seconds
+                updates['eta_seconds'] = hours * 3600 + minutes * 60 + seconds
+
+            # Apply all updates atomically with lock
+            if updates:
+                with self._progress_lock:
+                    self.progress.update(updates)
 
         except Exception as e:
             # Parsing errors are non-fatal, just log them

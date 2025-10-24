@@ -2,6 +2,7 @@
 Job Manager - Central controller for all backup jobs
 """
 import time
+import threading
 from typing import Dict, List, Optional, Tuple
 from models.job import Job
 from storage.job_storage import JobStorage
@@ -27,6 +28,7 @@ class JobManager:
             self.storage = JobStorage()
             self.engines: Dict[str, any] = {}  # job_id -> engine instance
             self.last_progress_save: Dict[str, Tuple[float, int]] = {}  # job_id -> (timestamp, percent)
+            self._engines_lock = threading.Lock()  # Protect engines dict access
             JobManager._initialized = True
 
     def create_job(
@@ -86,13 +88,24 @@ class JobManager:
         """
         try:
             # Check if already running
-            if job_id in self.engines and self.engines[job_id].is_running():
-                return False, "Job is already running"
+            with self._engines_lock:
+                if job_id in self.engines and self.engines[job_id].is_running():
+                    return False, "Job is already running"
 
             # Load job from storage
             job = self.storage.get_job(job_id)
             if not job:
                 return False, f"Job {job_id} not found"
+
+            # Enforce valid status transitions
+            valid_start_statuses = [Job.STATUS_PENDING, Job.STATUS_PAUSED, Job.STATUS_FAILED]
+            if job.status not in valid_start_statuses:
+                if job.status == Job.STATUS_RUNNING:
+                    return False, "Job is already running"
+                elif job.status == Job.STATUS_COMPLETED:
+                    return False, "Cannot start completed job. Create a new job or delete this one."
+                else:
+                    return False, f"Cannot start job with status '{job.status}'"
 
             # Validate paths before starting
             valid, error_msg = job.validate_paths()
@@ -137,12 +150,13 @@ class JobManager:
 
             # Start engine
             if engine.start():
-                self.engines[job_id] = engine
+                with self._engines_lock:
+                    self.engines[job_id] = engine
+                    # Initialize progress tracking for periodic persistence
+                    self.last_progress_save[job_id] = (time.time(), 0)
+
                 job.update_status(Job.STATUS_RUNNING)
                 self.storage.update_job(job)
-
-                # Initialize progress tracking for periodic persistence
-                self.last_progress_save[job_id] = (time.time(), 0)
 
                 return True, f"Job '{job.name}' started successfully"
             else:
@@ -162,11 +176,11 @@ class JobManager:
             Tuple of (success, message)
         """
         try:
-            # Check if job is running
-            if job_id not in self.engines:
-                return False, "Job is not running"
-
-            engine = self.engines[job_id]
+            # Check if job is running and get engine
+            with self._engines_lock:
+                if job_id not in self.engines:
+                    return False, "Job is not running"
+                engine = self.engines[job_id]
 
             # Stop engine
             if engine.stop():
@@ -180,11 +194,11 @@ class JobManager:
                     self.storage.update_job(job)
 
                 # Clean up engine from memory
-                del self.engines[job_id]
-
-                # Clean up progress tracking
-                if job_id in self.last_progress_save:
-                    del self.last_progress_save[job_id]
+                with self._engines_lock:
+                    del self.engines[job_id]
+                    # Clean up progress tracking
+                    if job_id in self.last_progress_save:
+                        del self.last_progress_save[job_id]
 
                 return True, f"Job stopped successfully"
             else:
@@ -209,8 +223,13 @@ class JobManager:
                 return None
 
             # If job is running, get live progress from engine
-            if job_id in self.engines:
-                engine = self.engines[job_id]
+            with self._engines_lock:
+                if job_id in self.engines:
+                    engine = self.engines[job_id]
+                else:
+                    engine = None
+
+            if engine:
                 if engine.is_running():
                     live_progress = engine.get_progress()
                     job.update_progress(live_progress)
@@ -219,7 +238,8 @@ class JobManager:
                     if self._should_persist_progress(job_id, live_progress):
                         self.storage.update_job(job)
                         current_percent = live_progress.get('percent', 0)
-                        self.last_progress_save[job_id] = (time.time(), current_percent)
+                        with self._engines_lock:
+                            self.last_progress_save[job_id] = (time.time(), current_percent)
                 else:
                     # Engine stopped but still in memory, clean up
                     final_progress = engine.get_progress()
@@ -229,11 +249,12 @@ class JobManager:
                     elif final_progress.get('status') == 'failed':
                         job.update_status(Job.STATUS_FAILED)
                     self.storage.update_job(job)
-                    del self.engines[job_id]
 
-                    # Clean up progress tracking
-                    if job_id in self.last_progress_save:
-                        del self.last_progress_save[job_id]
+                    with self._engines_lock:
+                        del self.engines[job_id]
+                        # Clean up progress tracking
+                        if job_id in self.last_progress_save:
+                            del self.last_progress_save[job_id]
 
             return {
                 'id': job.id,
@@ -281,7 +302,10 @@ class JobManager:
         """
         try:
             # Stop job if running
-            if job_id in self.engines:
+            with self._engines_lock:
+                is_running = job_id in self.engines
+
+            if is_running:
                 self.stop_job(job_id)
 
             # Delete from storage
@@ -308,11 +332,12 @@ class JobManager:
         current_time = time.time()
         current_percent = progress.get('percent', 0)
 
-        # First save for this job
-        if job_id not in self.last_progress_save:
-            return True
+        with self._engines_lock:
+            # First save for this job
+            if job_id not in self.last_progress_save:
+                return True
 
-        last_time, last_percent = self.last_progress_save[job_id]
+            last_time, last_percent = self.last_progress_save[job_id]
 
         # Save if 2+ seconds elapsed OR 1%+ progress change
         time_elapsed = (current_time - last_time) >= 2.0

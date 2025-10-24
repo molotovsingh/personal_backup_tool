@@ -45,6 +45,7 @@ class RsyncEngine:
             'eta_seconds': 0,
             'status': 'pending'
         }
+        self._progress_lock = threading.Lock()  # Protect progress dict access
         self.log_file = Path.home() / 'backup-manager' / 'logs' / f'rsync_{job_id}.log'
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -105,6 +106,19 @@ class RsyncEngine:
         try:
             if self.process:
                 self.process.terminate()
+
+                # Drain remaining output to capture final progress
+                try:
+                    # Read remaining lines with a short timeout
+                    for _ in range(10):  # Read up to 10 lines
+                        line = self.process.stdout.readline()
+                        if not line:
+                            break
+                        self._parse_progress(line)
+                        self.log(line.strip())
+                except Exception:
+                    pass  # Non-fatal if drain fails
+
                 self.process.wait(timeout=5)
             self.running = False
             self.progress['status'] = 'paused'
@@ -123,7 +137,8 @@ class RsyncEngine:
 
     def get_progress(self):
         """Get current progress"""
-        return self.progress.copy()
+        with self._progress_lock:
+            return self.progress.copy()
 
     def _monitor_output(self):
         """Monitor rsync output in background thread with auto-retry"""
@@ -236,6 +251,8 @@ class RsyncEngine:
             # rsync progress format: "  1,234,567,890  12%   2.34MB/s    0:01:23 (xfr#9, to-chk=123/456)"
             # or simpler: "  1,234,567,890  12%   2.34MB/s    0:01:23"
 
+            updates = {}
+
             # Look for "to-check=X/Y" or "to-chk=X/Y" for overall progress
             # Format: to-chk=remaining/total (e.g., to-chk=1/2514 means 2513 done, 1 remaining)
             check_match = re.search(r'to-chk(?:eck)?=(\d+)/(\d+)', line)
@@ -245,13 +262,13 @@ class RsyncEngine:
                 if total > 0:
                     completed = total - remaining
                     percent = int((completed / total) * 100)
-                    self.progress['percent'] = percent
+                    updates['percent'] = percent
 
             # Look for transferred bytes (number with commas before the %)
             bytes_match = re.search(r'[\s,]+([\d,]+)[\s,]+\d+%', line)
             if bytes_match:
                 bytes_str = bytes_match.group(1).replace(',', '')
-                self.progress['bytes_transferred'] = int(bytes_str)
+                updates['bytes_transferred'] = int(bytes_str)
 
             # Look for speed (e.g., "2.34MB/s" or "123.45kB/s")
             speed_match = re.search(r'([\d.]+)(MB|KB|GB)/s', line, re.IGNORECASE)
@@ -259,7 +276,7 @@ class RsyncEngine:
                 speed = float(speed_match.group(1))
                 unit = speed_match.group(2).upper()
                 multiplier = {'KB': 1024, 'MB': 1024*1024, 'GB': 1024*1024*1024}
-                self.progress['speed_bytes'] = int(speed * multiplier.get(unit, 1))
+                updates['speed_bytes'] = int(speed * multiplier.get(unit, 1))
 
             # Look for ETA (e.g., "0:01:23")
             eta_match = re.search(r'(\d+):(\d+):(\d+)', line)
@@ -267,7 +284,12 @@ class RsyncEngine:
                 hours = int(eta_match.group(1))
                 minutes = int(eta_match.group(2))
                 seconds = int(eta_match.group(3))
-                self.progress['eta_seconds'] = hours * 3600 + minutes * 60 + seconds
+                updates['eta_seconds'] = hours * 3600 + minutes * 60 + seconds
+
+            # Apply all updates atomically with lock
+            if updates:
+                with self._progress_lock:
+                    self.progress.update(updates)
 
         except Exception as e:
             # Parsing errors are non-fatal, just log them
