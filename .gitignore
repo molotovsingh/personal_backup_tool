@@ -5,3 +5,20 @@ __pycache__/
 .DS_Store
 *.db
 .streamlit/
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# User Data (runtime generated)
+jobs.yaml
+settings.yaml
+
+# Temporary/Cache
+.npm-cache/
+test_backup/
+
+# Compiled Python
+*.pyo
