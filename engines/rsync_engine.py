@@ -206,10 +206,16 @@ class RsyncEngine:
             # rsync progress format: "  1,234,567,890  12%   2.34MB/s    0:01:23 (xfr#9, to-chk=123/456)"
             # or simpler: "  1,234,567,890  12%   2.34MB/s    0:01:23"
 
-            # Look for lines with percentage
-            percent_match = re.search(r'(\d+)%', line)
-            if percent_match:
-                self.progress['percent'] = int(percent_match.group(1))
+            # Look for "to-check=X/Y" or "to-chk=X/Y" for overall progress
+            # Format: to-chk=remaining/total (e.g., to-chk=1/2514 means 2513 done, 1 remaining)
+            check_match = re.search(r'to-chk(?:eck)?=(\d+)/(\d+)', line)
+            if check_match:
+                remaining = int(check_match.group(1))
+                total = int(check_match.group(2))
+                if total > 0:
+                    completed = total - remaining
+                    percent = int((completed / total) * 100)
+                    self.progress['percent'] = percent
 
             # Look for transferred bytes (number with commas before the %)
             bytes_match = re.search(r'[\s,]+([\d,]+)[\s,]+\d+%', line)
