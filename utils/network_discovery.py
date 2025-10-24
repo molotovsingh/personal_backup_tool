@@ -32,9 +32,10 @@ def get_mounted_volumes() -> List[Dict[str, str]]:
         for item in volumes_dir.iterdir():
             if item.is_dir() and item.name != "Macintosh HD":
                 # Get mount info using df
+                # Use -P for POSIX output format (more consistent parsing)
                 try:
                     result = subprocess.run(
-                        ["df", "-h", str(item)],
+                        ["df", "-Ph", str(item)],
                         capture_output=True,
                         text=True,
                         timeout=5

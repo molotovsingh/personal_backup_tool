@@ -1,7 +1,6 @@
 """
 Job storage manager - YAML-based persistence for backup jobs
 """
-import os
 import yaml
 from pathlib import Path
 from typing import List, Optional

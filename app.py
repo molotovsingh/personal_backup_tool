@@ -3,6 +3,7 @@ Backup Manager - GUI for managing local and cloud backups
 """
 import streamlit as st
 import os
+import shutil
 from pathlib import Path
 from core.job_manager import JobManager
 from core.settings import get_settings
@@ -867,11 +868,11 @@ elif page == "Settings":
     st.subheader("Tools Check")
 
     # Check rsync
-    rsync_check = os.system("which rsync > /dev/null 2>&1") == 0
+    rsync_check = shutil.which("rsync") is not None
     st.write(f"**rsync:** {'✅ Installed' if rsync_check else '❌ Not found'}")
 
     # Check rclone
-    rclone_check = os.system("which rclone > /dev/null 2>&1") == 0
+    rclone_check = shutil.which("rclone") is not None
     if rclone_check:
         remotes = list_remotes()
         st.write(f"**rclone:** ✅ Installed ({len(remotes)} remote(s) configured)")
