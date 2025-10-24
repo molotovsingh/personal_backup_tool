@@ -1,0 +1,18 @@
+# System Requirements (NOT Python packages)
+# These must be installed separately at the OS level
+
+# rsync - For local and network file transfers
+# macOS/Linux: Usually pre-installed
+# Check: which rsync
+# Install (macOS): brew install rsync
+# Install (Linux): apt-get install rsync
+
+# rclone - For cloud storage transfers (optional but recommended)
+# macOS: brew install rclone
+# Linux: curl https://rclone.org/install.sh | sudo bash
+# Windows: Download from https://rclone.org/downloads/
+# Check: which rclone
+# Configure: rclone config
+
+# Note: These are binary executables, not Python packages,
+# so they cannot be included in requirements.txt
