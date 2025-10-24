@@ -507,7 +507,7 @@ elif page == "Jobs":
                             else:
                                 st.error(msg)
                     else:
-                        st.button("▶️ Start", disabled=True, use_container_width=True)
+                        st.button("▶️ Start", disabled=True, key=f"start_{job['id']}_disabled", use_container_width=True)
 
                 with col2:
                     # Stop button - only show if job is running
@@ -520,7 +520,7 @@ elif page == "Jobs":
                             else:
                                 st.error(msg)
                     else:
-                        st.button("⏸️ Stop", disabled=True, use_container_width=True)
+                        st.button("⏸️ Stop", disabled=True, key=f"stop_{job['id']}_disabled", use_container_width=True)
 
                 with col3:
                     # Delete button - always available
