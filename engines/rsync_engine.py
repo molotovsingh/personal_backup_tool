@@ -5,7 +5,6 @@ import subprocess
 import threading
 import time
 import re
-import os
 from pathlib import Path
 from datetime import datetime
 
@@ -60,7 +59,7 @@ class RsyncEngine:
             self.process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # Merge stderr into stdout to prevent pipe deadlock
                 universal_newlines=True,
                 bufsize=1
             )
@@ -127,8 +126,8 @@ class RsyncEngine:
 
                 elif returncode in self.NETWORK_ERROR_CODES:
                     # Network error - attempt retry
-                    stderr = self.process.stderr.read()
-                    self.log(f"rsync network error (code {returncode}): {stderr}")
+                    # Note: stderr is merged into stdout, error output already logged
+                    self.log(f"rsync network error (code {returncode})")
 
                     if self.retry_count < self.max_retries:
                         # Calculate exponential backoff (1s, 2s, 4s, 8s, 16s, 32s, max 60s)
@@ -160,8 +159,8 @@ class RsyncEngine:
 
                 else:
                     # Other error (not network-related)
-                    stderr = self.process.stderr.read()
-                    self.log(f"rsync failed with code {returncode}: {stderr}")
+                    # Note: stderr is merged into stdout, error output already logged
+                    self.log(f"rsync failed with code {returncode}")
                     self.progress['status'] = 'failed'
                     self.running = False
                     break
@@ -193,7 +192,7 @@ class RsyncEngine:
             self.process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # Merge stderr into stdout to prevent pipe deadlock
                 universal_newlines=True,
                 bufsize=1
             )

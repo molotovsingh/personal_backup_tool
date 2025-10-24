@@ -135,27 +135,26 @@ class NetworkMonitor:
 
     def _check_connectivity(self) -> bool:
         """
-        Check if network is reachable by pinging targets
+        Check if network is reachable using socket connection to targets.
+        Uses port 53 (DNS) for connectivity check - more portable than ping.
 
         Returns:
             True if at least one target is reachable
         """
+        import socket
+
         for target in self.targets:
             try:
-                # Ping with 1 second timeout
-                result = subprocess.run(
-                    ['ping', '-c', '1', '-W', '1', target],
-                    capture_output=True,
-                    timeout=2
-                )
+                # Try to connect to DNS port with 2 second timeout
+                # This is more portable than ping and doesn't require root
+                socket.create_connection((target, 53), timeout=2)
+                return True
 
-                if result.returncode == 0:
-                    return True
-
-            except subprocess.TimeoutExpired:
+            except (socket.timeout, socket.error, OSError) as e:
+                self.log(f"Cannot reach {target}: {e}")
                 continue
             except Exception as e:
-                self.log(f"Error checking {target}: {e}")
+                self.log(f"Unexpected error checking {target}: {e}")
                 continue
 
         return False

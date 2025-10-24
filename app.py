@@ -94,10 +94,12 @@ if page == "Dashboard":
     # Check if any jobs are running
     has_running_jobs = any(job['status'] == 'running' for job in jobs)
 
-    # Auto-refresh if there are running jobs
+    # Auto-refresh if there are running jobs (use configured interval)
     if has_running_jobs:
         import time
-        time.sleep(0.1)  # Small delay to prevent too rapid refreshes
+        settings = get_settings()
+        refresh_interval = settings.get('auto_refresh_interval', 2)  # Default 2 seconds
+        time.sleep(refresh_interval)
         st.rerun()
 
     # Calculate live stats
@@ -114,16 +116,18 @@ if page == "Dashboard":
     else:
         total_transferred_str = f"{total_bytes / 1024:.2f} KB"
 
-    # Check network status (simple ping to Google DNS)
-    import subprocess
+    # Check network status using socket connection
+    import socket
     try:
-        result = subprocess.run(
-            ['ping', '-c', '1', '-W', '1', '8.8.8.8'],
-            capture_output=True,
-            timeout=2
-        )
-        network_online = (result.returncode == 0)
-    except:
+        # Try to connect to Google DNS on port 53 (more portable than ping)
+        socket.create_connection(('8.8.8.8', 53), timeout=2)
+        network_online = True
+    except (socket.timeout, socket.error, OSError):
+        network_online = False
+    except Exception as e:
+        # Log unexpected errors but don't crash
+        import logging
+        logging.warning(f"Unexpected error checking network: {e}")
         network_online = False
 
     network_status = "✅ Online" if network_online else "❌ Offline"
@@ -157,8 +161,9 @@ if page == "Dashboard":
 
                 with col1:
                     st.write(f"**{job['name']}** ({job['type']})")
-                    # Progress bar
-                    st.progress(percent / 100.0 if percent <= 100 else 1.0, text=f"{percent}%")
+                    # Progress bar (text param separated for compatibility with older Streamlit)
+                    st.progress(percent / 100.0 if percent <= 100 else 1.0)
+                    st.caption(f"{percent}%")
 
                 with col2:
                     # Speed
@@ -252,9 +257,11 @@ if page == "Dashboard":
                                         'icon': event_icon,
                                         'message': message[:80]  # Truncate long messages
                                     })
-                            except:
+                            except (ValueError, IndexError) as e:
+                                # Skip malformed log lines
                                 continue
-            except:
+            except (OSError, IOError, PermissionError) as e:
+                # Skip files that can't be read
                 continue
 
     # Sort by timestamp (most recent first) and limit to 10
@@ -387,7 +394,8 @@ elif page == "Jobs":
                         if use_remote:
                             selected_remote = st.selectbox("Select Remote", remotes)
                             remote_path = st.text_input("Remote Path", placeholder="path/on/remote")
-                            dest_path = f"{selected_remote}:{remote_path}"
+                            # Default to root if remote_path is empty
+                            dest_path = f"{selected_remote}:{remote_path if remote_path.strip() else '/'}"
                         else:
                             dest_path = st.text_input(
                                 "Destination Path *",

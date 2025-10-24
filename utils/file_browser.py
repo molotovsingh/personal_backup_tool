@@ -7,7 +7,7 @@ Supports local filesystem and network shares.
 
 import streamlit as st
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict
 import logging
 
 from utils.network_discovery import (
