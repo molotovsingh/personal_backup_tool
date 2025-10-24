@@ -1,0 +1,6 @@
+# Development Dependencies (optional)
+# These improve the development experience but are not required for production use
+
+# Watchdog - File system monitoring for faster Streamlit auto-reload
+# Install with: uv pip install -r requirements-dev.txt
+watchdog>=3.0.0

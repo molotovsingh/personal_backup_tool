@@ -38,6 +38,17 @@ echo "Installing Python dependencies..."
 uv pip install -r requirements.txt
 echo "✓ Python dependencies installed"
 
+# Check watchdog (optional dev dependency)
+echo ""
+echo "Checking optional development dependencies..."
+if python3 -c "import watchdog" 2>/dev/null; then
+    echo "✓ watchdog is installed (faster auto-reload)"
+else
+    echo "ℹ watchdog not installed (optional)"
+    echo "  For better development performance:"
+    echo "  uv pip install -r requirements-dev.txt"
+fi
+
 # Check rsync
 echo ""
 echo "Checking system dependencies..."

@@ -210,6 +210,17 @@ auto_refresh_interval: 2
 
 ## Development
 
+### Development Setup
+
+For a better development experience with faster auto-reload:
+
+```bash
+# Install development dependencies (optional)
+uv pip install -r requirements-dev.txt
+```
+
+This installs **watchdog**, which provides faster file system monitoring for Streamlit's auto-reload feature. While not required, it significantly improves the development workflow.
+
 ### Running Tests
 
 ```bash
