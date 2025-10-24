@@ -103,13 +103,19 @@ class JobManager:
                 return False, f"Pre-start validation failed: {error_msg}"
 
             # Create appropriate engine
+            # Get max_retry_attempts from settings
+            from core.settings import get_settings
+            settings = get_settings()
+            max_retries = settings.get('max_retry_attempts', 10)
+
             engine = None
             if job.type == Job.TYPE_RSYNC:
                 engine = RsyncEngine(
                     source=job.source,
                     dest=job.dest,
                     job_id=job.id,
-                    bandwidth_limit=job.settings.get('bandwidth_limit')
+                    bandwidth_limit=job.settings.get('bandwidth_limit'),
+                    max_retries=max_retries
                 )
             elif job.type == Job.TYPE_RCLONE:
                 # Import here to avoid circular dependency if rclone engine imports Job
@@ -119,7 +125,8 @@ class JobManager:
                         source=job.source,
                         dest=job.dest,
                         job_id=job.id,
-                        bandwidth_limit=job.settings.get('bandwidth_limit')
+                        bandwidth_limit=job.settings.get('bandwidth_limit'),
+                        max_retries=max_retries
                     )
                 except ImportError:
                     return False, "Rclone engine not yet implemented"
@@ -268,7 +275,13 @@ class JobManager:
             return False, f"Error deleting job: {str(e)}"
 
     def cleanup_stopped_engines(self):
-        """Clean up engines that have finished running"""
+        """
+        Clean up engines that have finished running
+
+        NOTE: Currently unused. Reserved for future optimization where engines
+        are cleaned up periodically in the background rather than on-demand.
+        The current implementation cleans engines when get_job_status() is called.
+        """
         stopped_engines = []
 
         for job_id, engine in self.engines.items():

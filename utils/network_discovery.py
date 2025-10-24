@@ -129,7 +129,8 @@ def discover_smb_shares(timeout: int = 10) -> List[Dict[str, str]]:
                                 'type': 'smb',
                                 'status': 'discovered'
                             })
-                        except:
+                        except (IndexError, ValueError, AttributeError) as e:
+                            logger.debug(f"Failed to parse SMB discovery line '{line}': {e}")
                             continue
         except subprocess.TimeoutExpired:
             logger.warning("SMB discovery timed out")
