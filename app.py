@@ -822,6 +822,19 @@ elif page == "Settings":
             help="Number of times to retry after network failure"
         )
 
+        # Verification mode
+        verification_mode = st.selectbox(
+            "Backup Verification Mode",
+            options=['fast', 'checksum', 'verify_after'],
+            index=['fast', 'checksum', 'verify_after'].index(settings.get('verification_mode', 'fast')),
+            format_func=lambda x: {
+                'fast': '⚡ Fast (size + time check only)',
+                'checksum': '🔒 Checksum (slower but verified)',
+                'verify_after': '✅ Verify After (fast sync + verification pass)'
+            }[x],
+            help="Fast: Quick but only checks file size/time. Checksum: Slower but guarantees data integrity. Verify After: Best of both worlds."
+        )
+
         # Dashboard refresh interval
         refresh_interval = st.slider(
             "Dashboard Refresh Interval (seconds)",
@@ -844,6 +857,7 @@ elif page == "Settings":
             settings.set('auto_start_on_launch', auto_start)
             settings.set('network_check_interval', network_interval)
             settings.set('max_retry_attempts', max_retries)
+            settings.set('verification_mode', verification_mode)
             settings.set('auto_refresh_interval', refresh_interval)
             st.success("✓ Settings saved successfully!")
             st.rerun()

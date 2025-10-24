@@ -118,10 +118,11 @@ class JobManager:
                 return False, f"Pre-start validation failed: {error_msg}"
 
             # Create appropriate engine
-            # Get max_retry_attempts from settings
+            # Get settings including verification mode
             from core.settings import get_settings
             settings = get_settings()
             max_retries = settings.get('max_retry_attempts', 10)
+            verification_mode = settings.get('verification_mode', 'fast')
 
             engine = None
             if job.type == Job.TYPE_RSYNC:
@@ -130,7 +131,8 @@ class JobManager:
                     dest=job.dest,
                     job_id=job.id,
                     bandwidth_limit=job.settings.get('bandwidth_limit'),
-                    max_retries=max_retries
+                    max_retries=max_retries,
+                    verification_mode=verification_mode
                 )
             elif job.type == Job.TYPE_RCLONE:
                 # Import here to avoid circular dependency if rclone engine imports Job
@@ -141,7 +143,8 @@ class JobManager:
                         dest=job.dest,
                         job_id=job.id,
                         bandwidth_limit=job.settings.get('bandwidth_limit'),
-                        max_retries=max_retries
+                        max_retries=max_retries,
+                        verification_mode=verification_mode
                     )
                 except ImportError:
                     return False, "Rclone engine not yet implemented"

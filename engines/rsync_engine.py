@@ -27,12 +27,13 @@ class RsyncEngine:
         'connection unexpectedly closed'
     ]
 
-    def __init__(self, source, dest, job_id, bandwidth_limit=None, max_retries=10):
+    def __init__(self, source, dest, job_id, bandwidth_limit=None, max_retries=10, verification_mode='fast'):
         self.source = source
         self.dest = dest
         self.job_id = job_id
         self.bandwidth_limit = bandwidth_limit
         self.max_retries = max_retries
+        self.verification_mode = verification_mode  # 'fast', 'checksum', or 'verify_after'
         self.retry_count = 0
         self.process = None
         self.thread = None
@@ -43,7 +44,13 @@ class RsyncEngine:
             'percent': 0,
             'speed_bytes': 0,
             'eta_seconds': 0,
-            'status': 'pending'
+            'status': 'pending',
+            'verification': {
+                'enabled': verification_mode != 'fast',
+                'passed': None,
+                'files_checked': 0,
+                'mismatches': 0
+            }
         }
         self._progress_lock = threading.Lock()  # Protect progress dict access
         self.log_file = Path.home() / 'backup-manager' / 'logs' / f'rsync_{job_id}.log'
@@ -68,6 +75,11 @@ class RsyncEngine:
         # Add --append-verify if supported (requires rsync 3.0+, not available on macOS 2.6.9)
         if self.supports_append_verify:
             cmd.append('--append-verify')
+
+        # Add checksum verification based on verification mode
+        if self.verification_mode == 'checksum':
+            cmd.append('--checksum')  # Compare files using checksums, not just size/time
+            self.log("Verification mode: checksum (slower but verified)")
 
         if self.bandwidth_limit:
             cmd.extend(['--bwlimit', f'{self.bandwidth_limit}k'])
@@ -224,6 +236,10 @@ class RsyncEngine:
             # Add --append-verify if supported
             if self.supports_append_verify:
                 cmd.append('--append-verify')
+
+            # Add checksum verification based on verification mode
+            if self.verification_mode == 'checksum':
+                cmd.append('--checksum')
 
             if self.bandwidth_limit:
                 cmd.extend(['--bwlimit', f'{self.bandwidth_limit}k'])

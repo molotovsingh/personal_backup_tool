@@ -24,12 +24,13 @@ class RcloneEngine:
         'too many open files'
     ]
 
-    def __init__(self, source, dest, job_id, bandwidth_limit=None, max_retries=10):
+    def __init__(self, source, dest, job_id, bandwidth_limit=None, max_retries=10, verification_mode='fast'):
         self.source = source
         self.dest = dest
         self.job_id = job_id
         self.bandwidth_limit = bandwidth_limit
         self.max_retries = max_retries
+        self.verification_mode = verification_mode  # 'fast', 'checksum', or 'verify_after'
         self.retry_count = 0
         self.process = None
         self.thread = None
@@ -40,7 +41,13 @@ class RcloneEngine:
             'percent': 0,
             'speed_bytes': 0,
             'eta_seconds': 0,
-            'status': 'pending'
+            'status': 'pending',
+            'verification': {
+                'enabled': verification_mode != 'fast',
+                'passed': None,
+                'files_checked': 0,
+                'mismatches': 0
+            }
         }
         self._progress_lock = threading.Lock()  # Protect progress dict access
         self.log_file = Path.home() / 'backup-manager' / 'logs' / f'rclone_{job_id}.log'
@@ -61,6 +68,11 @@ class RcloneEngine:
             '--retries', '1',  # Let our wrapper handle retries
             '--low-level-retries', '3',  # But allow some low-level retries
         ]
+
+        # Add checksum verification based on verification mode
+        if self.verification_mode == 'checksum':
+            cmd.append('--checksum')  # Use checksums for comparison, not just size/time
+            self.log("Verification mode: checksum (slower but verified)")
 
         if self.bandwidth_limit:
             # rclone uses different format: --bwlimit 1M or --bwlimit 1000k
@@ -224,6 +236,10 @@ class RcloneEngine:
                 '--retries', '1',  # Our wrapper handles retries
                 '--low-level-retries', '3',
             ]
+
+            # Add checksum verification based on verification mode
+            if self.verification_mode == 'checksum':
+                cmd.append('--checksum')
 
             if self.bandwidth_limit:
                 cmd.extend(['--bwlimit', f'{self.bandwidth_limit}k'])

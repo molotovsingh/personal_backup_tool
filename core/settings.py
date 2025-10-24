@@ -15,6 +15,7 @@ class Settings:
         'network_check_interval': 30,  # seconds
         'max_retry_attempts': 10,
         'auto_refresh_interval': 2,  # seconds for dashboard
+        'verification_mode': 'fast',  # 'fast' (size/time), 'checksum' (hash), or 'verify_after' (verify after sync)
     }
 
     def __init__(self, settings_path: str = None):
