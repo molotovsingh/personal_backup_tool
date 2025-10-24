@@ -10,6 +10,39 @@ from utils.rclone_helper import list_remotes, is_rclone_installed
 from utils.file_browser import show_path_input_with_browser, show_network_shares_selector, show_smb_discovery
 from utils.network_discovery import get_all_network_shares
 
+
+def read_last_lines(file_path, n=5, max_bytes=8192):
+    """
+    Efficiently read the last N lines from a file without loading the entire file.
+
+    Args:
+        file_path: Path to the file
+        n: Number of lines to read from end
+        max_bytes: Maximum bytes to read from end (default 8KB should be enough for most logs)
+
+    Returns:
+        List of last N lines
+    """
+    try:
+        with open(file_path, 'rb') as f:
+            # Get file size
+            f.seek(0, 2)  # Seek to end
+            file_size = f.tell()
+
+            # Read from the end
+            bytes_to_read = min(max_bytes, file_size)
+            f.seek(file_size - bytes_to_read)
+
+            # Read and decode
+            content = f.read().decode('utf-8', errors='ignore')
+            lines = content.splitlines()
+
+            # Return last N lines
+            return lines[-n:] if len(lines) >= n else lines
+    except Exception as e:
+        return []
+
+
 # Page config
 st.set_page_config(
     page_title="Backup Manager",
@@ -35,6 +68,19 @@ if 'startup_check_done' not in st.session_state:
     # Check for rclone installation
     rclone_installed, _ = is_rclone_installed()
     st.session_state.rclone_installed = rclone_installed
+
+    # Auto-resume paused jobs if setting is enabled
+    settings = get_settings()
+    if settings.get('auto_start_on_launch', False):
+        paused_jobs = [job for job in jobs if job['status'] == 'paused']
+        if paused_jobs:
+            st.session_state.auto_resumed_jobs = []
+            for job in paused_jobs:
+                success, message = manager.start_job(job['id'])
+                if success:
+                    st.session_state.auto_resumed_jobs.append(job['name'])
+            if st.session_state.auto_resumed_jobs:
+                st.session_state.show_auto_resume_message = True
 
 # Sidebar navigation
 st.sidebar.title("💾 Backup Manager")
@@ -82,6 +128,16 @@ if st.session_state.get('show_recovery_prompt', False):
 
         st.session_state.show_recovery_prompt = False
         st.rerun()
+
+# Show auto-resume message if jobs were auto-started
+if st.session_state.get('show_auto_resume_message', False):
+    auto_resumed = st.session_state.get('auto_resumed_jobs', [])
+    if auto_resumed:
+        st.sidebar.markdown("---")
+        st.sidebar.info(f"▶️ Auto-resumed {len(auto_resumed)} paused job(s)")
+        if st.sidebar.button("Dismiss"):
+            st.session_state.show_auto_resume_message = False
+            st.rerun()
 
 # Main content
 if page == "Dashboard":
@@ -207,10 +263,9 @@ if page == "Dashboard":
         # Read all log files and extract key events
         for log_file in sorted(log_dir.glob("*.log"), key=lambda p: p.stat().st_mtime, reverse=True):
             try:
-                with open(log_file, 'r') as f:
-                    lines = f.readlines()
-                    # Get last 5 lines from each log
-                    for line in lines[-5:]:
+                # Efficiently read last 5 lines without loading entire file
+                lines = read_last_lines(log_file, n=5)
+                for line in lines:
                         # Parse log line format: [2025-01-15 10:30:45] message
                         if line.strip() and '[' in line:
                             try:
@@ -435,9 +490,17 @@ elif page == "Jobs":
                         use_remote = st.checkbox("Use configured remote")
                         if use_remote:
                             selected_remote = st.selectbox("Select Remote", remotes)
-                            remote_path = st.text_input("Remote Path", placeholder="path/on/remote")
-                            # Default to root if remote_path is empty
-                            dest_path = f"{selected_remote}:{remote_path if remote_path.strip() else '/'}"
+                            remote_path = st.text_input(
+                                "Remote Path *",
+                                placeholder="path/on/remote (required)",
+                                help="Specify a path on the remote. Empty path would backup to remote root."
+                            )
+                            # Warn if remote_path is empty
+                            if not remote_path.strip():
+                                st.warning("⚠️ Remote path is empty - this will backup to the remote root directory. Please specify a path.")
+                                dest_path = ""  # Don't allow empty remote path
+                            else:
+                                dest_path = f"{selected_remote}:{remote_path.strip()}"
                         else:
                             dest_path = st.text_input(
                                 "Destination Path *",
@@ -831,14 +894,31 @@ elif page == "Logs":
         if not filtered_logs:
             st.warning("No logs match the filter")
         else:
-            # Read and combine log contents
+            # Read and combine log contents (with limit to prevent memory issues)
+            MAX_LINES_PER_FILE = 1000  # Limit lines per file to prevent memory issues
             all_lines = []
             for log in filtered_logs:
                 try:
+                    # Read file line by line instead of loading all at once
                     with open(log, 'r') as f:
-                        lines = f.readlines()
-                        for line in lines:
+                        # Read from end if file is large
+                        f.seek(0, 2)  # Seek to end
+                        file_size = f.tell()
+
+                        if file_size > 100000:  # If file > 100KB, read last portion only
+                            # Read last ~100KB for efficiency
+                            f.seek(max(0, file_size - 100000))
+                            f.readline()  # Skip partial line
+                        else:
+                            f.seek(0)  # Read from beginning for small files
+
+                        line_count = 0
+                        for line in f:
                             all_lines.append((log.stem, line))
+                            line_count += 1
+                            if line_count >= MAX_LINES_PER_FILE:
+                                st.info(f"⚠️ Showing last {MAX_LINES_PER_FILE} lines from {log.name} (file truncated)")
+                                break
                 except Exception as e:
                     st.error(f"Error reading {log.name}: {e}")
 
