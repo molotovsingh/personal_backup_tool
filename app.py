@@ -87,20 +87,12 @@ if st.session_state.get('show_recovery_prompt', False):
 if page == "Dashboard":
     st.title("Dashboard")
 
-    # Auto-refresh every 2 seconds when jobs are running
+    # Get jobs for display
     manager = JobManager()
     jobs = manager.list_jobs()
 
-    # Check if any jobs are running
+    # Check if any jobs are running (for auto-refresh at end)
     has_running_jobs = any(job['status'] == 'running' for job in jobs)
-
-    # Auto-refresh if there are running jobs (use configured interval)
-    if has_running_jobs:
-        import time
-        settings = get_settings()
-        refresh_interval = settings.get('auto_refresh_interval', 2)  # Default 2 seconds
-        time.sleep(refresh_interval)
-        st.rerun()
 
     # Calculate live stats
     active_jobs_count = sum(1 for job in jobs if job['status'] == 'running')
@@ -284,8 +276,21 @@ if page == "Dashboard":
             with col3:
                 st.caption(f"Job {event['job']}: {event['message']}")
 
+    # Auto-refresh at end of page if there are running jobs
+    if has_running_jobs:
+        import time
+        settings = get_settings()
+        refresh_interval = settings.get('auto_refresh_interval', 2)  # Default 2 seconds
+        time.sleep(refresh_interval)
+        st.rerun()
+
 elif page == "Jobs":
     st.title("Backup Jobs")
+
+    # Get jobs and check if any are running (for auto-refresh at end)
+    manager = JobManager()
+    jobs_list = manager.list_jobs()
+    has_running_jobs_on_jobs_page = any(job['status'] == 'running' for job in jobs_list)
 
     # Initialize session state for form visibility
     if 'show_create_form' not in st.session_state:
@@ -524,14 +529,11 @@ elif page == "Jobs":
     # Job list
     st.markdown("### Backup Jobs")
 
-    manager = JobManager()
-    jobs = manager.list_jobs()
-
-    if not jobs:
+    if not jobs_list:
         st.info("No jobs configured yet. Click 'New Job' to create one.")
     else:
         # Display each job in an expandable container
-        for job in jobs:
+        for job in jobs_list:
             # Status badge colors
             status_colors = {
                 'pending': '⚪',
@@ -649,6 +651,14 @@ elif page == "Jobs":
                                 st.rerun()
                             else:
                                 st.error(msg)
+
+    # Auto-refresh at end of page if there are running jobs
+    if has_running_jobs_on_jobs_page:
+        import time
+        settings = get_settings()
+        refresh_interval = settings.get('auto_refresh_interval', 2)  # Default 2 seconds
+        time.sleep(refresh_interval)
+        st.rerun()
 
 elif page == "Settings":
     st.title("Settings")
