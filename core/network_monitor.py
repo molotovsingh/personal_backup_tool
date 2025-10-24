@@ -190,7 +190,13 @@ _network_monitor_instance = None
 
 
 def get_network_monitor() -> NetworkMonitor:
-    """Get the global NetworkMonitor singleton"""
+    """
+    Get the global NetworkMonitor singleton
+
+    NOTE: Currently unused. Reserved for future feature where network monitoring
+    runs continuously in the background and pauses/resumes jobs based on connectivity.
+    Currently, connectivity is checked on-demand when starting jobs.
+    """
     global _network_monitor_instance
     if _network_monitor_instance is None:
         _network_monitor_instance = NetworkMonitor()
