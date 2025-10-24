@@ -7,6 +7,8 @@ from pathlib import Path
 from core.job_manager import JobManager
 from core.settings import get_settings
 from utils.rclone_helper import list_remotes, is_rclone_installed
+from utils.file_browser import show_path_input_with_browser, show_network_shares_selector, show_smb_discovery
+from utils.network_discovery import get_all_network_shares
 
 # Page config
 st.set_page_config(
@@ -293,6 +295,63 @@ elif page == "Jobs":
     if st.session_state.show_create_form:
         st.markdown("### Create New Backup Job")
 
+        # Initialize session state for path selection
+        if 'selected_source_path' not in st.session_state:
+            st.session_state.selected_source_path = ""
+        if 'selected_dest_path' not in st.session_state:
+            st.session_state.selected_dest_path = ""
+
+        # Network Shares Discovery Section (outside form)
+        with st.expander("🌐 Network Shares & Quick Browse", expanded=False):
+            tab1, tab2, tab3 = st.tabs(["📁 Browse Files", "📡 Mounted Shares", "🔍 Discover Network"])
+
+            with tab1:
+                from utils.file_browser import show_file_browser
+
+                st.markdown("**Browse local or network directories:**")
+                st.caption("Navigate to a folder and click 'Use as Source' or 'Use as Destination'")
+
+                browsed_path = show_file_browser(
+                    key="job_create_browser",
+                    initial_path=st.session_state.selected_source_path or None,
+                    mode="directory"
+                )
+
+                if browsed_path:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("Use as Source", key="browsed_as_source"):
+                            st.session_state.selected_source_path = browsed_path
+                            st.success(f"Source set to: {browsed_path}")
+                            st.rerun()
+                    with col2:
+                        if st.button("Use as Destination", key="browsed_as_dest"):
+                            st.session_state.selected_dest_path = browsed_path
+                            st.success(f"Destination set to: {browsed_path}")
+                            st.rerun()
+
+            with tab2:
+                st.markdown("**Select a mounted network share:**")
+                mounted_share = show_network_shares_selector("job_create_mounted")
+
+                if mounted_share:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("Use as Source", key="mounted_as_source"):
+                            st.session_state.selected_source_path = mounted_share
+                            st.success(f"Source set to: {mounted_share}")
+                            st.rerun()
+                    with col2:
+                        if st.button("Use as Destination", key="mounted_as_dest"):
+                            st.session_state.selected_dest_path = mounted_share
+                            st.success(f"Destination set to: {mounted_share}")
+                            st.rerun()
+
+            with tab3:
+                discovered_shares = show_smb_discovery("job_create_discovery")
+
+        st.markdown("---")
+
         with st.form("create_job_form"):
             # Job name
             job_name = st.text_input(
@@ -314,8 +373,9 @@ elif page == "Jobs":
             with col1:
                 source_path = st.text_input(
                     "Source Path *",
+                    value=st.session_state.selected_source_path,
                     placeholder="/path/to/source" if job_type == "rsync" else "remote:path or /local/path",
-                    help="Path to backup from"
+                    help="Path to backup from (use Network Shares section above to browse)"
                 )
 
             with col2:
@@ -331,20 +391,23 @@ elif page == "Jobs":
                         else:
                             dest_path = st.text_input(
                                 "Destination Path *",
+                                value=st.session_state.selected_dest_path,
                                 placeholder="remote:path or /local/path",
-                                help="Path to backup to"
+                                help="Path to backup to (use Network Shares section above to browse)"
                             )
                     else:
                         dest_path = st.text_input(
                             "Destination Path *",
+                            value=st.session_state.selected_dest_path,
                             placeholder="remote:path or /local/path",
-                            help="Path to backup to (configure remotes with: rclone config)"
+                            help="Path to backup to (configure remotes with: rclone config or use Network Shares above)"
                         )
                 else:
                     dest_path = st.text_input(
                         "Destination Path *",
+                        value=st.session_state.selected_dest_path,
                         placeholder="/path/to/destination",
-                        help="Path to backup to"
+                        help="Path to backup to (use Network Shares section above to browse)"
                     )
 
             # Bandwidth limit
@@ -395,6 +458,9 @@ elif page == "Jobs":
 
                     if success:
                         st.success(f"✓ {msg} (ID: {job.id[:8]})")
+                        # Clear path selections
+                        st.session_state.selected_source_path = ""
+                        st.session_state.selected_dest_path = ""
                         st.session_state.show_create_form = False
                         st.rerun()
                     else:
