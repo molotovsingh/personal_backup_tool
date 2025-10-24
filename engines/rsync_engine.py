@@ -44,7 +44,6 @@ class RsyncEngine:
             'rsync',
             '-ah',  # Archive mode, human-readable
             '--partial',  # Keep partially transferred files for resume
-            '--append-verify',  # Resume by appending data, then verify with checksum
             '--progress'  # Show progress
         ]
 
@@ -179,7 +178,6 @@ class RsyncEngine:
                 'rsync',
                 '-ah',
                 '--partial',  # Resume from partial files
-                '--append-verify',  # Append and verify
                 '--progress'
             ]
 
