@@ -307,55 +307,92 @@ elif page == "Jobs":
             st.session_state.selected_source_path = ""
         if 'selected_dest_path' not in st.session_state:
             st.session_state.selected_dest_path = ""
+        if 'show_source_browser' not in st.session_state:
+            st.session_state.show_source_browser = False
+        if 'show_dest_browser' not in st.session_state:
+            st.session_state.show_dest_browser = False
 
-        # Network Shares Discovery Section (outside form)
-        with st.expander("🌐 Network Shares & Quick Browse", expanded=False):
-            tab1, tab2, tab3 = st.tabs(["📁 Browse Files", "📡 Mounted Shares", "🔍 Discover Network"])
+        # Browse for Source Path
+        st.markdown("#### 📁 Source Path")
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            if st.session_state.selected_source_path:
+                st.success(f"Selected: `{st.session_state.selected_source_path}`")
+            else:
+                st.info("Click 'Browse' to select source directory")
+        with col2:
+            if st.button("📁 Browse", key="browse_source_btn", use_container_width=True):
+                st.session_state.show_source_browser = not st.session_state.show_source_browser
+                st.rerun()
 
-            with tab1:
+        if st.session_state.show_source_browser:
+            with st.expander("📂 Select Source Location", expanded=True):
                 from utils.file_browser import show_file_browser
 
-                st.markdown("**Browse local or network directories:**")
-                st.caption("Navigate to a folder and click 'Use as Source' or 'Use as Destination'")
+                source_tab1, source_tab2 = st.tabs(["📁 Browse Files", "🌐 Network Shares"])
 
-                browsed_path = show_file_browser(
-                    key="job_create_browser",
-                    initial_path=st.session_state.selected_source_path or None,
-                    mode="directory"
-                )
-
-                if browsed_path:
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("Use as Source", key="browsed_as_source"):
-                            st.session_state.selected_source_path = browsed_path
-                            st.success(f"Source set to: {browsed_path}")
-                            st.rerun()
-                    with col2:
-                        if st.button("Use as Destination", key="browsed_as_dest"):
-                            st.session_state.selected_dest_path = browsed_path
-                            st.success(f"Destination set to: {browsed_path}")
+                with source_tab1:
+                    st.caption("Navigate to the folder you want to backup")
+                    browsed_source = show_file_browser(
+                        key="source_browser",
+                        initial_path=st.session_state.selected_source_path or None,
+                        mode="directory"
+                    )
+                    if browsed_source:
+                        if st.button("✓ Use This Path", key="confirm_source_browse", use_container_width=True):
+                            st.session_state.selected_source_path = browsed_source
+                            st.session_state.show_source_browser = False
                             st.rerun()
 
-            with tab2:
-                st.markdown("**Select a mounted network share:**")
-                mounted_share = show_network_shares_selector("job_create_mounted")
-
-                if mounted_share:
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("Use as Source", key="mounted_as_source"):
-                            st.session_state.selected_source_path = mounted_share
-                            st.success(f"Source set to: {mounted_share}")
-                            st.rerun()
-                    with col2:
-                        if st.button("Use as Destination", key="mounted_as_dest"):
-                            st.session_state.selected_dest_path = mounted_share
-                            st.success(f"Destination set to: {mounted_share}")
+                with source_tab2:
+                    st.caption("Select from mounted network shares")
+                    source_share = show_network_shares_selector("source_shares")
+                    if source_share:
+                        if st.button("✓ Use This Share", key="confirm_source_share", use_container_width=True):
+                            st.session_state.selected_source_path = source_share
+                            st.session_state.show_source_browser = False
                             st.rerun()
 
-            with tab3:
-                discovered_shares = show_smb_discovery("job_create_discovery")
+        # Browse for Destination Path
+        st.markdown("#### 📁 Destination Path")
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            if st.session_state.selected_dest_path:
+                st.success(f"Selected: `{st.session_state.selected_dest_path}`")
+            else:
+                st.info("Click 'Browse' to select destination directory")
+        with col2:
+            if st.button("📁 Browse", key="browse_dest_btn", use_container_width=True):
+                st.session_state.show_dest_browser = not st.session_state.show_dest_browser
+                st.rerun()
+
+        if st.session_state.show_dest_browser:
+            with st.expander("📂 Select Destination Location", expanded=True):
+                from utils.file_browser import show_file_browser
+
+                dest_tab1, dest_tab2 = st.tabs(["📁 Browse Files", "🌐 Network Shares"])
+
+                with dest_tab1:
+                    st.caption("Navigate to where you want to save the backup")
+                    browsed_dest = show_file_browser(
+                        key="dest_browser",
+                        initial_path=st.session_state.selected_dest_path or None,
+                        mode="directory"
+                    )
+                    if browsed_dest:
+                        if st.button("✓ Use This Path", key="confirm_dest_browse", use_container_width=True):
+                            st.session_state.selected_dest_path = browsed_dest
+                            st.session_state.show_dest_browser = False
+                            st.rerun()
+
+                with dest_tab2:
+                    st.caption("Select from mounted network shares")
+                    dest_share = show_network_shares_selector("dest_shares")
+                    if dest_share:
+                        if st.button("✓ Use This Share", key="confirm_dest_share", use_container_width=True):
+                            st.session_state.selected_dest_path = dest_share
+                            st.session_state.show_dest_browser = False
+                            st.rerun()
 
         st.markdown("---")
 
@@ -382,7 +419,7 @@ elif page == "Jobs":
                     "Source Path *",
                     value=st.session_state.selected_source_path,
                     placeholder="/path/to/source" if job_type == "rsync" else "remote:path or /local/path",
-                    help="Path to backup from (use Network Shares section above to browse)"
+                    help="Path to backup from (selected via Browse button above, or type manually)"
                 )
 
             with col2:
@@ -401,21 +438,21 @@ elif page == "Jobs":
                                 "Destination Path *",
                                 value=st.session_state.selected_dest_path,
                                 placeholder="remote:path or /local/path",
-                                help="Path to backup to (use Network Shares section above to browse)"
+                                help="Path to backup to (selected via Browse button above, or type manually)"
                             )
                     else:
                         dest_path = st.text_input(
                             "Destination Path *",
                             value=st.session_state.selected_dest_path,
                             placeholder="remote:path or /local/path",
-                            help="Path to backup to (configure remotes with: rclone config or use Network Shares above)"
+                            help="Path to backup to (configure remotes with: rclone config, or use Browse button above)"
                         )
                 else:
                     dest_path = st.text_input(
                         "Destination Path *",
                         value=st.session_state.selected_dest_path,
                         placeholder="/path/to/destination",
-                        help="Path to backup to (use Network Shares section above to browse)"
+                        help="Path to backup to (selected via Browse button above, or type manually)"
                     )
 
             # Bandwidth limit
