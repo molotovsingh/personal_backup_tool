@@ -564,9 +564,22 @@ elif page == "Jobs":
                     st.write(f"**Updated:** {job['updated_at'][:19]}")
 
                 # Progress information
-                if job['status'] in ['running', 'completed']:
+                if job['status'] in ['running', 'completed', 'paused']:
                     st.markdown("---")
                     progress = job['progress']
+
+                    # Show pause indicator for paused jobs
+                    if job['status'] == 'paused':
+                        percent = progress.get('percent', 0)
+                        bytes_transferred = progress.get('bytes_transferred', 0)
+                        if bytes_transferred > 1024**3:
+                            size_str = f"{bytes_transferred / 1024**3:.2f} GB"
+                        elif bytes_transferred > 1024**2:
+                            size_str = f"{bytes_transferred / 1024**2:.2f} MB"
+                        else:
+                            size_str = f"{bytes_transferred / 1024:.2f} KB"
+
+                        st.info(f"⏸️ **Paused at {percent}%** - {size_str} transferred. Click Resume to continue.")
 
                     # Progress bar
                     percent = progress.get('percent', 0)
@@ -589,7 +602,9 @@ elif page == "Jobs":
 
                     with col3:
                         speed_bytes = progress.get('speed_bytes', 0)
-                        if speed_bytes > 1024**2:
+                        if job['status'] == 'paused':
+                            st.metric("Speed", "Paused")
+                        elif speed_bytes > 1024**2:
                             st.metric("Speed", f"{speed_bytes / 1024**2:.2f} MB/s")
                         elif speed_bytes > 1024:
                             st.metric("Speed", f"{speed_bytes / 1024:.2f} KB/s")
@@ -597,22 +612,37 @@ elif page == "Jobs":
                             st.metric("Speed", f"{speed_bytes} B/s")
 
                     with col4:
-                        eta_seconds = progress.get('eta_seconds', 0)
-                        if eta_seconds > 3600:
-                            st.metric("ETA", f"{eta_seconds // 3600}h {(eta_seconds % 3600) // 60}m")
-                        elif eta_seconds > 60:
-                            st.metric("ETA", f"{eta_seconds // 60}m {eta_seconds % 60}s")
+                        if job['status'] == 'paused':
+                            st.metric("ETA", "Paused")
                         else:
-                            st.metric("ETA", f"{eta_seconds}s")
+                            eta_seconds = progress.get('eta_seconds', 0)
+                            if eta_seconds > 3600:
+                                st.metric("ETA", f"{eta_seconds // 3600}h {(eta_seconds % 3600) // 60}m")
+                            elif eta_seconds > 60:
+                                st.metric("ETA", f"{eta_seconds // 60}m {eta_seconds % 60}s")
+                            else:
+                                st.metric("ETA", f"{eta_seconds}s")
 
                 # Control buttons
                 st.markdown("---")
                 col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
 
                 with col1:
-                    # Start button - only show if job is pending or paused
+                    # Start/Resume button - only show if job is pending or paused
+                    if job['status'] == 'paused':
+                        # Show Resume for paused jobs
+                        button_label = "▶️ Resume"
+                        button_help = "Resume from where the job was paused"
+                    elif job['status'] == 'pending':
+                        # Show Start for new jobs
+                        button_label = "▶️ Start"
+                        button_help = "Start this backup job"
+                    else:
+                        button_label = "▶️ Start"
+                        button_help = None
+
                     if job['status'] in ['pending', 'paused']:
-                        if st.button("▶️ Start", key=f"start_{job['id']}", use_container_width=True):
+                        if st.button(button_label, key=f"start_{job['id']}", use_container_width=True, help=button_help):
                             success, msg = manager.start_job(job['id'])
                             if success:
                                 st.success(msg)
@@ -620,12 +650,13 @@ elif page == "Jobs":
                             else:
                                 st.error(msg)
                     else:
-                        st.button("▶️ Start", disabled=True, key=f"start_{job['id']}_disabled", use_container_width=True)
+                        st.button(button_label, disabled=True, key=f"start_{job['id']}_disabled", use_container_width=True)
 
                 with col2:
-                    # Stop button - only show if job is running
+                    # Pause button - only show if job is running
                     if job['status'] == 'running':
-                        if st.button("⏸️ Stop", key=f"stop_{job['id']}", use_container_width=True):
+                        if st.button("⏸️ Pause", key=f"pause_{job['id']}", use_container_width=True,
+                                   help="Pause this job (can be resumed later)"):
                             success, msg = manager.stop_job(job['id'])
                             if success:
                                 st.success(msg)
@@ -633,7 +664,7 @@ elif page == "Jobs":
                             else:
                                 st.error(msg)
                     else:
-                        st.button("⏸️ Stop", disabled=True, key=f"stop_{job['id']}_disabled", use_container_width=True)
+                        st.button("⏸️ Pause", disabled=True, key=f"pause_{job['id']}_disabled", use_container_width=True)
 
                 with col3:
                     # Delete button - always available
