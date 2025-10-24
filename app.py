@@ -626,8 +626,26 @@ elif page == "Jobs":
                     st.write(f"**Created:** {job['created_at'][:19]}")
                     st.write(f"**Updated:** {job['updated_at'][:19]}")
 
+                # Show error information for failed jobs
+                if job['status'] == 'failed':
+                    st.markdown("---")
+                    # Try to read last few lines from log file to show error
+                    log_file = Path.home() / 'backup-manager' / 'logs' / f"{job['type']}_{job['id']}.log"
+                    if log_file.exists():
+                        error_lines = read_last_lines(log_file, n=3)
+                        if error_lines:
+                            error_msg = "\n".join(error_lines)
+                            st.error(f"**❌ Job Failed**\n\n```\n{error_msg}\n```")
+                        else:
+                            st.error("**❌ Job Failed** - Check logs for details")
+                    else:
+                        st.error("**❌ Job Failed** - Log file not found")
+
+                    # Show link to full logs
+                    st.caption("💡 Click 'Retry' to try again, or view full logs in the Logs page")
+
                 # Progress information
-                if job['status'] in ['running', 'completed', 'paused']:
+                if job['status'] in ['running', 'completed', 'paused', 'failed']:
                     st.markdown("---")
                     progress = job['progress']
 
@@ -691,11 +709,15 @@ elif page == "Jobs":
                 col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
 
                 with col1:
-                    # Start/Resume button - only show if job is pending or paused
+                    # Start/Resume/Retry button - show for pending, paused, or failed jobs
                     if job['status'] == 'paused':
                         # Show Resume for paused jobs
                         button_label = "▶️ Resume"
                         button_help = "Resume from where the job was paused"
+                    elif job['status'] == 'failed':
+                        # Show Retry for failed jobs
+                        button_label = "🔄 Retry"
+                        button_help = "Retry this backup job from the beginning"
                     elif job['status'] == 'pending':
                         # Show Start for new jobs
                         button_label = "▶️ Start"
@@ -704,7 +726,7 @@ elif page == "Jobs":
                         button_label = "▶️ Start"
                         button_help = None
 
-                    if job['status'] in ['pending', 'paused']:
+                    if job['status'] in ['pending', 'paused', 'failed']:
                         if st.button(button_label, key=f"start_{job['id']}", use_container_width=True, help=button_help):
                             success, msg = manager.start_job(job['id'])
                             if success:
