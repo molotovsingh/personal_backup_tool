@@ -1,6 +1,7 @@
 """
 Job Manager - Central controller for all backup jobs
 """
+import time
 from typing import Dict, List, Optional, Tuple
 from models.job import Job
 from storage.job_storage import JobStorage
@@ -25,6 +26,7 @@ class JobManager:
         if not JobManager._initialized:
             self.storage = JobStorage()
             self.engines: Dict[str, any] = {}  # job_id -> engine instance
+            self.last_progress_save: Dict[str, Tuple[float, int]] = {}  # job_id -> (timestamp, percent)
             JobManager._initialized = True
 
     def create_job(
@@ -138,6 +140,10 @@ class JobManager:
                 self.engines[job_id] = engine
                 job.update_status(Job.STATUS_RUNNING)
                 self.storage.update_job(job)
+
+                # Initialize progress tracking for periodic persistence
+                self.last_progress_save[job_id] = (time.time(), 0)
+
                 return True, f"Job '{job.name}' started successfully"
             else:
                 return False, "Failed to start backup engine"
@@ -176,6 +182,10 @@ class JobManager:
                 # Clean up engine from memory
                 del self.engines[job_id]
 
+                # Clean up progress tracking
+                if job_id in self.last_progress_save:
+                    del self.last_progress_save[job_id]
+
                 return True, f"Job stopped successfully"
             else:
                 return False, "Failed to stop backup engine"
@@ -204,7 +214,12 @@ class JobManager:
                 if engine.is_running():
                     live_progress = engine.get_progress()
                     job.update_progress(live_progress)
-                    # Update storage periodically (but not on every call to avoid I/O)
+
+                    # Update storage periodically (throttled to prevent excessive I/O)
+                    if self._should_persist_progress(job_id, live_progress):
+                        self.storage.update_job(job)
+                        current_percent = live_progress.get('percent', 0)
+                        self.last_progress_save[job_id] = (time.time(), current_percent)
                 else:
                     # Engine stopped but still in memory, clean up
                     final_progress = engine.get_progress()
@@ -215,6 +230,10 @@ class JobManager:
                         job.update_status(Job.STATUS_FAILED)
                     self.storage.update_job(job)
                     del self.engines[job_id]
+
+                    # Clean up progress tracking
+                    if job_id in self.last_progress_save:
+                        del self.last_progress_save[job_id]
 
             return {
                 'id': job.id,
@@ -273,6 +292,33 @@ class JobManager:
 
         except Exception as e:
             return False, f"Error deleting job: {str(e)}"
+
+    def _should_persist_progress(self, job_id: str, progress: Dict) -> bool:
+        """
+        Check if progress should be persisted to disk.
+        Throttles saves to prevent excessive I/O.
+
+        Args:
+            job_id: ID of the job
+            progress: Current progress dict
+
+        Returns:
+            True if progress should be saved now
+        """
+        current_time = time.time()
+        current_percent = progress.get('percent', 0)
+
+        # First save for this job
+        if job_id not in self.last_progress_save:
+            return True
+
+        last_time, last_percent = self.last_progress_save[job_id]
+
+        # Save if 2+ seconds elapsed OR 1%+ progress change
+        time_elapsed = (current_time - last_time) >= 2.0
+        significant_change = abs(current_percent - last_percent) >= 1
+
+        return time_elapsed or significant_change
 
     def cleanup_stopped_engines(self):
         """
