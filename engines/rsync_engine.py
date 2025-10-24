@@ -60,6 +60,7 @@ class RsyncEngine:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,  # Merge stderr into stdout to prevent pipe deadlock
                 universal_newlines=True,
+                errors='replace',  # Replace invalid UTF-8 bytes instead of crashing
                 bufsize=1
             )
             self.running = True
@@ -192,6 +193,7 @@ class RsyncEngine:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,  # Merge stderr into stdout to prevent pipe deadlock
                 universal_newlines=True,
+                errors='replace',  # Replace invalid UTF-8 bytes instead of crashing
                 bufsize=1
             )
             return True

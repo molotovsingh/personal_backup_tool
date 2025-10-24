@@ -75,6 +75,7 @@ class RcloneEngine:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 universal_newlines=True,
+                errors='replace',  # Replace invalid UTF-8 bytes instead of crashing
                 bufsize=1
             )
             self.running = True
@@ -220,6 +221,7 @@ class RcloneEngine:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 universal_newlines=True,
+                errors='replace',  # Replace invalid UTF-8 bytes instead of crashing
                 bufsize=1
             )
             return True
