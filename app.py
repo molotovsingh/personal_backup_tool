@@ -892,13 +892,37 @@ elif page == "Logs":
     if not logs:
         st.info("No log files found")
     else:
+        # Load all jobs to map UUIDs to job names
+        manager = JobManager()
+        all_jobs = manager.list_jobs()
+        uuid_to_name = {job['id']: job['name'] for job in all_jobs}
+
+        # Helper function to extract UUID from log filename
+        def extract_uuid_from_log(log_path):
+            """Extract UUID from log filename like 'rsync_<uuid>.log' or 'rclone_<uuid>.log'"""
+            stem = log_path.stem  # e.g., 'rsync_54090955-ee2b-4906-af9a-c85dd466f2b9'
+            parts = stem.split('_', 1)  # Split on first underscore
+            return parts[1] if len(parts) > 1 else stem
+
+        # Create mapping: log file -> (job_name, uuid, filename)
+        log_info = []
+        for log in logs:
+            uuid = extract_uuid_from_log(log)
+            job_name = uuid_to_name.get(uuid, f"⚠️ Unknown ({uuid[:8]}...)")
+            log_info.append({
+                'path': log,
+                'uuid': uuid,
+                'job_name': job_name,
+                'display_name': f"📦 {job_name}"
+            })
+
         # Filter options
         col1, col2, col3 = st.columns([2, 2, 1])
 
         with col1:
-            # Job filter
-            job_names = ["All"] + [log.stem for log in logs]
-            selected_job = st.selectbox("Filter by Job", job_names)
+            # Job filter - show job names instead of raw filenames
+            job_options = ["All"] + [info['display_name'] for info in log_info]
+            selected_job = st.selectbox("Filter by Job", job_options)
 
         with col2:
             # Search
@@ -910,17 +934,18 @@ elif page == "Logs":
                 st.rerun()
 
         # Get filtered logs
-        filtered_logs = logs
+        filtered_log_info = log_info
         if selected_job != "All":
-            filtered_logs = [log for log in logs if log.stem == selected_job]
+            filtered_log_info = [info for info in log_info if info['display_name'] == selected_job]
 
-        if not filtered_logs:
+        if not filtered_log_info:
             st.warning("No logs match the filter")
         else:
             # Read and combine log contents (with limit to prevent memory issues)
             MAX_LINES_PER_FILE = 1000  # Limit lines per file to prevent memory issues
             all_lines = []
-            for log in filtered_logs:
+            for info in filtered_log_info:
+                log = info['path']
                 try:
                     # Read file line by line instead of loading all at once
                     with open(log, 'r') as f:
@@ -937,13 +962,15 @@ elif page == "Logs":
 
                         line_count = 0
                         for line in f:
-                            all_lines.append((log.stem, line))
+                            # Store job name and UUID with line for better display
+                            job_label = f"{info['job_name']} ({info['uuid'][:8]}...)"
+                            all_lines.append((job_label, line))
                             line_count += 1
                             if line_count >= MAX_LINES_PER_FILE:
-                                st.info(f"⚠️ Showing last {MAX_LINES_PER_FILE} lines from {log.name} (file truncated)")
+                                st.info(f"⚠️ Showing last {MAX_LINES_PER_FILE} lines from {info['job_name']} (file truncated)")
                                 break
                 except Exception as e:
-                    st.error(f"Error reading {log.name}: {e}")
+                    st.error(f"Error reading {info['job_name']}: {e}")
 
             # Apply search filter
             if search_term:
