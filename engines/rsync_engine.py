@@ -10,8 +10,22 @@ from datetime import datetime
 
 
 class RsyncEngine:
-    # Network-related rsync error codes
-    NETWORK_ERROR_CODES = [10, 12, 23, 30, 35]  # Connection errors, I/O errors, etc.
+    # Definite network-related rsync error codes (removed 23 - it's ambiguous)
+    NETWORK_ERROR_CODES = [10, 12, 30, 35]  # Connection errors, timeouts, etc.
+
+    # Network-related error patterns in rsync output (for code 23 disambiguation)
+    NETWORK_ERROR_PATTERNS = [
+        'connection refused',
+        'connection reset',
+        'connection timed out',
+        'connection closed',
+        'network is unreachable',
+        'no route to host',
+        'temporary failure',
+        'timeout',
+        'broken pipe',
+        'connection unexpectedly closed'
+    ]
 
     def __init__(self, source, dest, job_id, bandwidth_limit=None, max_retries=10):
         self.source = source
@@ -34,6 +48,9 @@ class RsyncEngine:
         self.log_file = Path.home() / 'backup-manager' / 'logs' / f'rsync_{job_id}.log'
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
 
+        # Check if --append-verify is supported (requires rsync 3.0+)
+        self.supports_append_verify = self._check_append_verify_support()
+
     def start(self):
         """Start the rsync process"""
         if self.running:
@@ -46,6 +63,10 @@ class RsyncEngine:
             '--partial',  # Keep partially transferred files for resume
             '--progress'  # Show progress
         ]
+
+        # Add --append-verify if supported (requires rsync 3.0+, not available on macOS 2.6.9)
+        if self.supports_append_verify:
+            cmd.append('--append-verify')
 
         if self.bandwidth_limit:
             cmd.extend(['--bwlimit', f'{self.bandwidth_limit}k'])
@@ -106,11 +127,14 @@ class RsyncEngine:
 
     def _monitor_output(self):
         """Monitor rsync output in background thread with auto-retry"""
+        output_buffer = []  # Collect output for error pattern matching
+
         while self.running:
             try:
                 for line in self.process.stdout:
                     self.log(line.strip())
                     self._parse_progress(line)
+                    output_buffer.append(line.lower())  # Collect for error checking
 
                 # Process finished
                 self.process.wait()
@@ -124,9 +148,8 @@ class RsyncEngine:
                     self.running = False
                     break
 
-                elif returncode in self.NETWORK_ERROR_CODES:
-                    # Network error - attempt retry
-                    # Note: stderr is merged into stdout, error output already logged
+                elif returncode in self.NETWORK_ERROR_CODES or self._is_network_error(returncode, output_buffer):
+                    # Network error (definite code or pattern-matched) - attempt retry
                     self.log(f"rsync network error (code {returncode})")
 
                     if self.retry_count < self.max_retries:
@@ -143,6 +166,7 @@ class RsyncEngine:
                         # Restart rsync if still running flag is True
                         if self.running:
                             self.log(f"Retry attempt {self.retry_count}: Restarting rsync")
+                            output_buffer.clear()  # Clear buffer for new attempt
                             if not self._restart_process():
                                 self.log("Failed to restart rsync process")
                                 self.progress['status'] = 'failed'
@@ -181,6 +205,10 @@ class RsyncEngine:
                 '--partial',  # Resume from partial files
                 '--progress'
             ]
+
+            # Add --append-verify if supported
+            if self.supports_append_verify:
+                cmd.append('--append-verify')
 
             if self.bandwidth_limit:
                 cmd.extend(['--bwlimit', f'{self.bandwidth_limit}k'])
@@ -244,6 +272,47 @@ class RsyncEngine:
         except Exception as e:
             # Parsing errors are non-fatal, just log them
             self.log(f"Progress parse error: {e}")
+
+    def _is_network_error(self, returncode, output_buffer):
+        """
+        Check if error is network-related by examining output patterns.
+        Used for ambiguous error codes like 23 (partial transfer).
+
+        Args:
+            returncode: rsync exit code
+            output_buffer: list of output lines (lowercased)
+
+        Returns:
+            True if network error patterns detected
+        """
+        # Only check patterns for ambiguous codes (like 23)
+        if returncode not in [23]:
+            return False
+
+        # Check last 50 lines for network error patterns
+        recent_output = ''.join(output_buffer[-50:])
+        return any(pattern in recent_output for pattern in self.NETWORK_ERROR_PATTERNS)
+
+    def _check_append_verify_support(self):
+        """
+        Check if rsync supports --append-verify flag (requires version 3.0+).
+        macOS typically ships with rsync 2.6.9 which doesn't support it.
+
+        Returns:
+            True if --append-verify is supported
+        """
+        try:
+            # Try running rsync with --help and check for append-verify
+            result = subprocess.run(
+                ['rsync', '--help'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            return '--append-verify' in result.stdout or '--append-verify' in result.stderr
+        except Exception:
+            # If we can't determine, assume not supported (safe default)
+            return False
 
     def log(self, message):
         """Write to log file"""
