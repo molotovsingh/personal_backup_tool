@@ -5,6 +5,8 @@ import streamlit as st
 import os
 import shutil
 from pathlib import Path
+from datetime import datetime
+from streamlit_autorefresh import st_autorefresh
 from core.job_manager import JobManager
 from core.settings import get_settings
 from utils.rclone_helper import list_remotes, is_rclone_installed
@@ -142,14 +144,32 @@ if st.session_state.get('show_auto_resume_message', False):
 
 # Main content
 if page == "Dashboard":
-    st.title("Dashboard")
+    # Auto-refresh setup (non-blocking) - must be at the very top
+    settings = get_settings()
+    refresh_interval = settings.get('auto_refresh_interval', 2)  # Default 2 seconds
 
     # Get jobs for display
     manager = JobManager()
     jobs = manager.list_jobs()
 
-    # Check if any jobs are running (for auto-refresh at end)
+    # Check if any jobs are running (for auto-refresh)
     has_running_jobs = any(job['status'] == 'running' for job in jobs)
+
+    # Enable non-blocking auto-refresh only when jobs are running
+    if has_running_jobs:
+        # Convert seconds to milliseconds and trigger auto-refresh
+        st_autorefresh(interval=refresh_interval * 1000, key="dashboard_refresh")
+
+    # Title with LIVE indicator
+    if has_running_jobs:
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.title("Dashboard")
+        with col2:
+            st.markdown("### 🔴 LIVE")
+            st.caption(f"Updates every {refresh_interval}s")
+    else:
+        st.title("Dashboard")
 
     # Calculate live stats
     active_jobs_count = sum(1 for job in jobs if job['status'] == 'running')
@@ -200,6 +220,7 @@ if page == "Dashboard":
     if not running_jobs:
         st.info("No jobs currently running")
     else:
+        st.info(f"📊 Monitoring {len(running_jobs)} active job{'s' if len(running_jobs) > 1 else ''} - Progress updates automatically every {refresh_interval} second{'s' if refresh_interval != 1 else ''}")
         for job in running_jobs:
             progress = job['progress']
             percent = progress.get('percent', 0)
@@ -332,21 +353,34 @@ if page == "Dashboard":
             with col3:
                 st.caption(f"Job {event['job']}: {event['message']}")
 
-    # Auto-refresh at end of page if there are running jobs
+    # Show last updated timestamp
     if has_running_jobs:
-        import time
-        settings = get_settings()
-        refresh_interval = settings.get('auto_refresh_interval', 2)  # Default 2 seconds
-        time.sleep(refresh_interval)
-        st.rerun()
+        st.caption(f"_Last updated: {datetime.now().strftime('%H:%M:%S')}_")
 
 elif page == "Jobs":
-    st.title("Backup Jobs")
+    # Auto-refresh setup (non-blocking)
+    settings = get_settings()
+    refresh_interval = settings.get('auto_refresh_interval', 2)  # Default 2 seconds
 
-    # Get jobs and check if any are running (for auto-refresh at end)
+    # Get jobs and check if any are running
     manager = JobManager()
     jobs_list = manager.list_jobs()
     has_running_jobs_on_jobs_page = any(job['status'] == 'running' for job in jobs_list)
+
+    # Enable non-blocking auto-refresh only when jobs are running
+    if has_running_jobs_on_jobs_page:
+        st_autorefresh(interval=refresh_interval * 1000, key="jobs_refresh")
+
+    # Title with LIVE indicator
+    if has_running_jobs_on_jobs_page:
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.title("Backup Jobs")
+        with col2:
+            st.markdown("### 🔴 LIVE")
+            st.caption(f"Updates every {refresh_interval}s")
+    else:
+        st.title("Backup Jobs")
 
     # Initialize session state for form visibility
     if 'show_create_form' not in st.session_state:
@@ -769,13 +803,9 @@ elif page == "Jobs":
                             else:
                                 st.error(msg)
 
-    # Auto-refresh at end of page if there are running jobs
+    # Show last updated timestamp
     if has_running_jobs_on_jobs_page:
-        import time
-        settings = get_settings()
-        refresh_interval = settings.get('auto_refresh_interval', 2)  # Default 2 seconds
-        time.sleep(refresh_interval)
-        st.rerun()
+        st.caption(f"_Last updated: {datetime.now().strftime('%H:%M:%S')}_")
 
 elif page == "Settings":
     st.title("Settings")
