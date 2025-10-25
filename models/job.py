@@ -65,7 +65,15 @@ class Job:
             'speed_bytes': 0,
             'eta_seconds': 0
         }
-        self.settings = settings or {}
+        # Initialize settings with defaults for deletion
+        default_settings = {
+            'delete_source_after': False,
+            'deletion_mode': 'verify_then_delete',  # or 'per_file'
+            'deletion_confirmed': False,
+            'skip_deletion_this_run': False
+        }
+        self.settings = {**default_settings, **(settings or {})}
+
         self.created_at = created_at or datetime.now().isoformat()
         self.updated_at = updated_at or datetime.now().isoformat()
 
@@ -204,6 +212,67 @@ class Job:
             settings=data.get('settings'),
             created_at=data.get('created_at'),
             updated_at=data.get('updated_at')
+        )
+
+    # Deletion settings helper methods
+
+    @property
+    def delete_source_after(self) -> bool:
+        """Check if source deletion is enabled for this job"""
+        return self.settings.get('delete_source_after', False)
+
+    @property
+    def deletion_mode(self) -> str:
+        """Get deletion mode ('verify_then_delete' or 'per_file')"""
+        return self.settings.get('deletion_mode', 'verify_then_delete')
+
+    @property
+    def deletion_confirmed(self) -> bool:
+        """Check if user has confirmed deletion risks"""
+        return self.settings.get('deletion_confirmed', False)
+
+    @property
+    def skip_deletion_this_run(self) -> bool:
+        """Check if deletion should be skipped for this run"""
+        return self.settings.get('skip_deletion_this_run', False)
+
+    def enable_deletion(self, mode: str = 'verify_then_delete', confirmed: bool = True):
+        """
+        Enable source deletion after backup
+
+        Args:
+            mode: Deletion mode ('verify_then_delete' or 'per_file')
+            confirmed: Whether user has confirmed the risks
+
+        Raises:
+            ValueError: If mode is invalid
+        """
+        valid_modes = ['verify_then_delete', 'per_file']
+        if mode not in valid_modes:
+            raise ValueError(f"Invalid deletion mode '{mode}'. Must be one of: {', '.join(valid_modes)}")
+
+        self.settings['delete_source_after'] = True
+        self.settings['deletion_mode'] = mode
+        self.settings['deletion_confirmed'] = confirmed
+        self.updated_at = datetime.now().isoformat()
+
+    def disable_deletion(self):
+        """Disable source deletion after backup"""
+        self.settings['delete_source_after'] = False
+        self.settings['skip_deletion_this_run'] = False
+        self.updated_at = datetime.now().isoformat()
+
+    def should_delete_source(self) -> bool:
+        """
+        Determine if source should be deleted for this run
+
+        Returns:
+            True if deletion should happen, False otherwise
+        """
+        return (
+            self.settings.get('delete_source_after', False) and
+            self.settings.get('deletion_confirmed', False) and
+            not self.settings.get('skip_deletion_this_run', False)
         )
 
     def __repr__(self) -> str:
