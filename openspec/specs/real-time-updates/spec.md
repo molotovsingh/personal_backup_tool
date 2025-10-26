@@ -1,7 +1,8 @@
-# Spec: Real-time Updates
+# real-time-updates Specification
 
-## ADDED Requirements
-
+## Purpose
+TBD - created by archiving change migrate-to-flask-app. Update Purpose after archive.
+## Requirements
 ### Requirement: WebSocket connection for job progress updates
 
 The application SHALL establish WebSocket connections using Flask-SocketIO to provide real-time job progress updates without polling.
@@ -93,3 +94,4 @@ The application SHALL gracefully degrade to HTMX polling if WebSocket connection
 **And** application starts in polling mode immediately
 **And** no WebSocket connection is attempted
 **And** user experience is identical (just higher latency)
+

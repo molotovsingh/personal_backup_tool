@@ -1,7 +1,8 @@
-# Spec: Dashboard Page
+# dashboard-page Specification
 
-## ADDED Requirements
-
+## Purpose
+TBD - created by archiving change migrate-to-flask-app. Update Purpose after archive.
+## Requirements
 ### Requirement: Dashboard displays real-time job statistics
 
 The dashboard page SHALL display an overview of all jobs with real-time statistics including active job count, total bytes transferred, and network status. Updates MUST occur automatically without full page refreshes.
@@ -53,3 +54,4 @@ The dashboard SHALL display the last 10 significant events across all jobs (job 
 **Then** the new event appears in the recent activity feed
 **And** older events are pushed down
 **And** the feed maintains maximum 10 events
+

@@ -1,7 +1,8 @@
-# Spec: Flask Application Structure
+# flask-application-structure Specification
 
-## ADDED Requirements
-
+## Purpose
+TBD - created by archiving change migrate-to-flask-app. Update Purpose after archive.
+## Requirements
 ### Requirement: Flask application initialization and configuration
 
 The Flask application SHALL be initialized using the application factory pattern with blueprints for each major page. Configuration MUST support development and production environments with appropriate defaults.
@@ -70,3 +71,4 @@ The application SHALL provide consistent error handling with user-friendly error
 **And** response time is logged for performance monitoring
 **And** user session ID is logged (if authenticated)
 **And** logs are written to the same format as existing logs
+

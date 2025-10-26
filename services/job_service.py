@@ -40,6 +40,11 @@ def validate_form_input(form_data: Dict) -> Tuple[bool, Optional[str], Optional[
     job_type = form_data.get('type', 'rsync').strip()
     bandwidth_limit = form_data.get('bandwidth_limit', 0)
 
+    # Extract deletion settings
+    delete_source_after = form_data.get('delete_source_after', False)
+    deletion_mode = form_data.get('deletion_mode', 'verify_then_delete')
+    deletion_confirmed = form_data.get('deletion_confirmed', False)
+
     # Validate required fields
     if not name:
         return False, 'Job name is required', None
@@ -58,10 +63,28 @@ def validate_form_input(form_data: Dict) -> Tuple[bool, Optional[str], Optional[
     except (ValueError, TypeError):
         return False, 'Invalid bandwidth limit value', None
 
+    # Validate deletion settings
+    if delete_source_after:
+        if not deletion_confirmed:
+            return False, 'You must confirm the deletion risks to enable source deletion', None
+
+        if deletion_mode not in ['verify_then_delete', 'per_file']:
+            return False, 'Invalid deletion mode selected', None
+
     # Construct job settings
     settings = {}
     if bandwidth_limit > 0:
         settings['bandwidth_limit'] = bandwidth_limit
+
+    # Add deletion settings
+    if delete_source_after:
+        settings['delete_source_after'] = True
+        settings['deletion_mode'] = deletion_mode
+        settings['deletion_confirmed'] = deletion_confirmed
+    else:
+        settings['delete_source_after'] = False
+        settings['deletion_mode'] = 'verify_then_delete'
+        settings['deletion_confirmed'] = False
 
     job_data = JobFormData(
         name=name,

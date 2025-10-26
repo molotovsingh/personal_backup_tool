@@ -1,7 +1,8 @@
-# Spec: Logs Page
+# logs-page Specification
 
-## ADDED Requirements
-
+## Purpose
+TBD - created by archiving change migrate-to-flask-app. Update Purpose after archive.
+## Requirements
 ### Requirement: Logs page displays filtered and searchable job logs
 
 The logs page SHALL display job execution logs with filtering by job, search functionality, and export capability.
@@ -59,3 +60,4 @@ The logs page SHALL provide a manual refresh button to reload logs without auto-
 **And** log entries are reloaded from disk
 **And** new log entries (if any) are displayed
 **And** scroll position is maintained
+

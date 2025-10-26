@@ -1,7 +1,8 @@
-# Spec: Settings Page
+# settings-page Specification
 
-## ADDED Requirements
-
+## Purpose
+TBD - created by archiving change migrate-to-flask-app. Update Purpose after archive.
+## Requirements
 ### Requirement: Settings page displays application configuration form
 
 The settings page SHALL display a form with all application settings (defaults, intervals, retry attempts) and allow users to update values.
@@ -62,3 +63,4 @@ The settings page SHALL display read-only system information including data dire
 **And** rclone installation status is checked and displayed
 **And** each tool shows: name, installed (yes/no), version (if installed)
 **And** if tool is missing, installation instructions are shown
+

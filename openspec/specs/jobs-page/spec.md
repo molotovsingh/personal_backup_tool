@@ -1,7 +1,8 @@
-# Spec: Jobs Page
+# jobs-page Specification
 
-## ADDED Requirements
-
+## Purpose
+TBD - created by archiving change migrate-to-flask-app. Update Purpose after archive.
+## Requirements
 ### Requirement: Jobs page displays all jobs with status and controls
 
 The jobs page SHALL display all backup jobs in a list with status badges, progress information, and action buttons (start, pause, delete).
@@ -105,3 +106,4 @@ Running jobs SHALL display live progress updates via WebSocket without polling.
 **And** JavaScript updates the job card UI
 **And** status badge changes color
 **And** action buttons change (e.g., show "Completed" instead of "Pause")
+

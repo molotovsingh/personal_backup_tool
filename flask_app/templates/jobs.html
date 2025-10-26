@@ -111,6 +111,33 @@
                                 0 means no limit
                             </p>
                         </div>
+
+                        <!-- Source Deletion Settings -->
+                        <div class="border-t border-gray-200 pt-4 mt-4">
+                            <div class="mb-4">
+                                <label class="flex items-center cursor-pointer">
+                                    <input type="checkbox"
+                                           id="delete_source_after"
+                                           name="delete_source_after"
+                                           value="true"
+                                           class="mr-3 w-5 h-5 text-red-600 focus:ring-red-500"
+                                           hx-get="/jobs/deletion-ui?delete_source_after=true"
+                                           hx-trigger="change"
+                                           hx-target="#deletion-options"
+                                           hx-swap="innerHTML"
+                                           onclick="if(!this.checked) document.getElementById('deletion-options').innerHTML = '';">
+                                    <span class="text-sm font-medium text-gray-700">
+                                        🗑️ Delete source files after successful backup
+                                    </span>
+                                </label>
+                                <p class="ml-8 mt-1 text-sm text-red-600">
+                                    ⚠️ WARNING: This will permanently delete source files after backup completes
+                                </p>
+                            </div>
+
+                            <!-- Deletion Options (populated via HTMX when checkbox is checked) -->
+                            <div id="deletion-options"></div>
+                        </div>
                     </div>
 
                     <div class="mt-6 flex gap-3">

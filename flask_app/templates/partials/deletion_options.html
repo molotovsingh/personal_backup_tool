@@ -1,0 +1,75 @@
+{% if show_options %}
+<!-- Deletion Warning Banner -->
+<div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+    <p class="text-red-800 font-semibold">
+        ⚠️ WARNING: Source files will be permanently deleted after backup!
+    </p>
+</div>
+
+<!-- Deletion Mode Selection -->
+<div class="mb-4">
+    <label class="block text-sm font-medium text-gray-700 mb-2">
+        Deletion Mode *
+    </label>
+    <div class="space-y-3">
+        <label class="flex items-start cursor-pointer p-3 border border-gray-300 rounded-lg hover:bg-gray-50">
+            <input type="radio"
+                   name="deletion_mode"
+                   value="verify_then_delete"
+                   checked
+                   class="mr-3 mt-1 text-blue-600 focus:ring-blue-500">
+            <div>
+                <div class="font-medium text-gray-900">
+                    🔒 Verify Then Delete (Safest - Recommended)
+                </div>
+                <div class="text-sm text-gray-600 mt-1">
+                    Transfer all files → Verify backup integrity → Delete source (only if verification passes)
+                </div>
+            </div>
+        </label>
+
+        <label class="flex items-start cursor-pointer p-3 border border-gray-300 rounded-lg hover:bg-gray-50">
+            <input type="radio"
+                   name="deletion_mode"
+                   value="per_file"
+                   class="mr-3 mt-1 text-orange-600 focus:ring-orange-500">
+            <div>
+                <div class="font-medium text-gray-900">
+                    ⚡ Per-File Deletion (Faster, less safe)
+                </div>
+                <div class="text-sm text-gray-600 mt-1">
+                    Delete each file immediately after transfer (no post-transfer verification)
+                </div>
+            </div>
+        </label>
+    </div>
+</div>
+
+<!-- Safety Features Info -->
+<div class="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+    <p class="text-green-900 font-semibold mb-2">
+        🛡️ Safety features enabled:
+    </p>
+    <ul class="text-sm text-green-800 space-y-1 ml-4">
+        <li>• Pre-deletion space verification (10% margin)</li>
+        <li>• Complete audit log of all deletions</li>
+        <li>• Deletion count tracking</li>
+        <li>• Option to skip deletion on each run</li>
+    </ul>
+</div>
+
+<!-- Confirmation Checkbox -->
+<div class="mb-4">
+    <label class="flex items-start cursor-pointer p-4 bg-yellow-50 border-2 border-yellow-300 rounded-lg">
+        <input type="checkbox"
+               id="deletion_confirmed"
+               name="deletion_confirmed"
+               value="true"
+               required
+               class="mr-3 mt-1 w-5 h-5 text-red-600 focus:ring-red-500">
+        <span class="text-sm font-semibold text-gray-900">
+            ⚠️ I understand that source files will be PERMANENTLY DELETED and cannot be recovered
+        </span>
+    </label>
+</div>
+{% endif %}

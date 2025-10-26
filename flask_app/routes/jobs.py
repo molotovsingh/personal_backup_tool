@@ -26,6 +26,14 @@ def list_jobs():
     return render_template('jobs.html', jobs=jobs)
 
 
+@jobs_bp.route('/deletion-ui')
+def deletion_ui():
+    """Return deletion options UI partial (HTMX endpoint)"""
+    # Check if deletion is enabled (checkbox state)
+    show_options = request.args.get('delete_source_after') == 'true'
+    return render_template('partials/deletion_options.html', show_options=show_options)
+
+
 @jobs_bp.route('/create', methods=['POST'])
 def create_job():
     """Create a new backup job"""
@@ -36,7 +44,10 @@ def create_job():
             'source': request.form.get('source', ''),
             'dest': request.form.get('dest', ''),
             'type': request.form.get('type', 'rsync'),
-            'bandwidth_limit': request.form.get('bandwidth_limit', 0)
+            'bandwidth_limit': request.form.get('bandwidth_limit', 0),
+            'delete_source_after': request.form.get('delete_source_after') == 'true',
+            'deletion_mode': request.form.get('deletion_mode', 'verify_then_delete'),
+            'deletion_confirmed': request.form.get('deletion_confirmed') == 'true'
         }
 
         # Use service layer to validate and create job
