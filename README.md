@@ -1,6 +1,6 @@
 # Backup Manager
 
-A robust GUI tool for managing file backups from local/network drives to network shares or Google Drive. Built with resilience and reliability in mind.
+A robust web-based tool for managing file backups from local/network drives to network shares or Google Drive. Built with resilience, security, and reliability in mind.
 
 ## Features
 
@@ -54,10 +54,16 @@ rclone config
 ### 1. Launch the App
 
 ```bash
-uv run streamlit run app.py
+# Development mode (with debug logging)
+uv run python flask_app.py
+
+# Production mode (requires SECRET_KEY environment variable)
+export SECRET_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')
+export FLASK_ENV=production
+uv run python flask_app.py
 ```
 
-The app will open at http://localhost:8501
+The app will be available at http://localhost:5001
 
 ### 2. Create Your First Job
 
@@ -93,12 +99,28 @@ This will guide you through setting up:
 
 ```
 backup-manager/
-├── app.py                    # Main Streamlit application
+├── flask_app.py             # Flask application entry point
+├── flask_app/               # Flask web application
+│   ├── __init__.py          # App factory with security configuration
+│   ├── config.py            # Flask configuration (dev/prod)
+│   ├── socketio_handlers.py # WebSocket event handlers
+│   ├── routes/              # Route blueprints
+│   │   ├── dashboard.py     # Dashboard endpoints
+│   │   ├── jobs.py          # Job management endpoints
+│   │   ├── settings.py      # Settings endpoints
+│   │   └── logs.py          # Logs endpoints
+│   └── templates/           # Jinja2 HTML templates
+│       ├── base.html        # Base template with CSRF protection
+│       ├── dashboard.html   # Dashboard page
+│       ├── jobs.html        # Jobs management page
+│       ├── settings.html    # Settings page
+│       └── logs.html        # Logs viewer page
 ├── models/
 │   └── job.py               # Job data model
 ├── storage/
 │   └── job_storage.py       # YAML persistence
 ├── core/
+│   ├── paths.py             # Centralized path management
 │   ├── job_manager.py       # Job orchestration
 │   ├── network_monitor.py   # Network connectivity monitoring
 │   └── settings.py          # Application settings
@@ -182,6 +204,46 @@ cat TESTING.md
 - Click "Resume Interrupted Jobs"
 - Jobs will continue from where they stopped
 
+## Security Configuration
+
+### Production Deployment
+
+For production deployments, the following security features are enabled:
+
+1. **SECRET_KEY**: Must be set via environment variable
+   ```bash
+   export SECRET_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')
+   ```
+
+2. **CSRF Protection**: Enabled by default via Flask-WTF
+   - All mutating operations require CSRF tokens
+   - HTMX requests automatically include CSRF headers
+
+3. **CORS**: Restricted to specific origins
+   ```bash
+   export CORS_ALLOWED_ORIGINS="http://localhost:5001,http://127.0.0.1:5001"
+   ```
+
+4. **Session Security**: HTTPOnly, SameSite, and Secure flags enabled in production
+
+5. **Data Directory**: Configurable via environment variable
+   ```bash
+   export BACKUP_MANAGER_DATA_DIR="/path/to/data"
+   ```
+
+### Development vs Production
+
+The application automatically adjusts security settings based on the environment:
+
+| Feature | Development | Production |
+|---------|-------------|------------|
+| Debug Mode | ON | OFF |
+| SECRET_KEY | Default (insecure) | Required env var |
+| CSRF Protection | Enabled | Enabled |
+| CORS | localhost only | Configurable |
+| Session Cookies | HTTP | HTTPS only |
+| SocketIO Logging | Enabled | Disabled |
+
 ## Configuration Files
 
 ### jobs.yaml
@@ -212,24 +274,25 @@ auto_refresh_interval: 2
 
 ### Development Setup
 
-For a better development experience with faster auto-reload:
+The Flask application uses hot-reloading in development mode:
 
 ```bash
-# Install development dependencies (optional)
-uv pip install -r requirements-dev.txt
+# Run in development mode (debug enabled, auto-reload)
+uv run python flask_app.py
 ```
 
-This installs **watchdog**, which provides faster file system monitoring for Streamlit's auto-reload feature. While not required, it significantly improves the development workflow.
+Flask's built-in debugger will automatically reload on code changes.
 
 ### Running Tests
 
 ```bash
+# Run pytest test suite
+uv run pytest
+
 # Test individual components
-uv run test_job_model.py
-uv run test_storage.py
-uv run test_job_manager.py
-uv run test_network_monitor.py
-uv run test_rclone_helper.py
+uv run pytest tests/test_job_model.py
+uv run pytest tests/test_storage.py
+uv run pytest tests/test_job_manager.py
 ```
 
 ### Adding New Features
@@ -237,8 +300,9 @@ uv run test_rclone_helper.py
 1. Follow the existing architecture
 2. Add models in `models/`
 3. Add business logic in `core/`
-4. Update UI in `app.py`
-5. Test thoroughly with `TESTING.md`
+4. Add routes in `flask_app/routes/`
+5. Update templates in `flask_app/templates/`
+6. Test thoroughly with pytest and manual testing
 
 ## License
 
@@ -247,12 +311,15 @@ MIT
 ## Credits
 
 Built with:
-- [Streamlit](https://streamlit.io/) - Web framework
+- [Flask](https://flask.palletsprojects.com/) - Web framework
+- [Flask-SocketIO](https://flask-socketio.readthedocs.io/) - WebSocket support for real-time updates
+- [HTMX](https://htmx.org/) - Dynamic HTML without JavaScript complexity
+- [Tailwind CSS](https://tailwindcss.com/) - Utility-first CSS framework
 - [rsync](https://rsync.samba.org/) - Local/network sync
 - [rclone](https://rclone.org/) - Cloud storage sync
 - [PyYAML](https://pyyaml.org/) - Configuration storage
 
 ---
 
-**Version**: 1.0.0
-**Last Updated**: 2025-10-24
+**Version**: 2.0.0
+**Last Updated**: 2025-10-26
