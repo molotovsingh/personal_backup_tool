@@ -14,14 +14,26 @@ class Config:
     # Flask settings
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
 
+    # CSRF Protection
+    WTF_CSRF_ENABLED = True
+    WTF_CSRF_TIME_LIMIT = None  # No timeout for long-running transfers
+
     # Session settings
     SESSION_TYPE = 'filesystem'
     SESSION_FILE_DIR = os.path.join(BASE_DIR, 'flask_sessions')
     SESSION_PERMANENT = False
     SESSION_USE_SIGNER = True
+    SESSION_COOKIE_SECURE = False  # Will be True in production
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+
+    # CORS settings (default allows localhost and 127.0.0.1)
+    CORS_ALLOWED_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', 'http://localhost:5001,http://127.0.0.1:5001').split(',')
 
     # SocketIO settings
     SOCKETIO_MESSAGE_QUEUE = None
+    SOCKETIO_LOGGER = False  # Will be True only in development
+    SOCKETIO_ENGINEIO_LOGGER = False  # Will be True only in development
 
     # Application settings (using centralized path management)
     JOBS_FILE = str(get_jobs_file())
@@ -38,19 +50,25 @@ class DevelopmentConfig(Config):
     DEBUG = True
     ENV = 'development'
 
+    # Enable debug logging in development
+    SOCKETIO_LOGGER = True
+    SOCKETIO_ENGINEIO_LOGGER = True
+
 
 class ProductionConfig(Config):
     """Production configuration"""
     DEBUG = False
     ENV = 'production'
-    # In production, SECRET_KEY must be set via environment variable
+
+    # SECRET_KEY will be validated during app creation
     SECRET_KEY = os.environ.get('SECRET_KEY') or Config.SECRET_KEY
 
-    def __init__(self):
-        # Validate SECRET_KEY only when actually using production config
-        if not os.environ.get('SECRET_KEY'):
-            import warnings
-            warnings.warn('SECRET_KEY not set via environment variable in production mode')
+    # Secure session cookies (HTTPS only)
+    SESSION_COOKIE_SECURE = True
+
+    # Disable debug logging in production
+    SOCKETIO_LOGGER = False
+    SOCKETIO_ENGINEIO_LOGGER = False
 
 
 # Configuration dictionary

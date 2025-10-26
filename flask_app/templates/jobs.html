@@ -33,6 +33,7 @@
                       hx-target="#jobs-content"
                       hx-swap="outerHTML"
                       hx-on::after-request="if(event.detail.successful) { document.getElementById('create-job-modal').classList.add('hidden'); this.reset(); }">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
 
                     <div class="space-y-4">
                         <!-- Job Name -->

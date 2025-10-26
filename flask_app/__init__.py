@@ -4,11 +4,14 @@ Flask Backup Manager Application
 from flask import Flask, render_template, request
 from flask_session import Session
 from flask_socketio import SocketIO
+from flask_wtf.csrf import CSRFProtect
+from flask_cors import CORS
 import os
 from pathlib import Path
 
-# Initialize SocketIO (will be configured in create_app)
+# Initialize extensions (will be configured in create_app)
 socketio = SocketIO()
+csrf = CSRFProtect()
 
 
 def create_app(config_name='development'):
@@ -19,17 +22,31 @@ def create_app(config_name='development'):
     from flask_app.config import config
     app.config.from_object(config[config_name])
 
+    # Validate SECRET_KEY in production
+    if config_name == 'production' and not os.environ.get('SECRET_KEY'):
+        raise RuntimeError(
+            "SECRET_KEY environment variable must be set in production mode. "
+            "Generate a strong secret key with: python -c 'import secrets; print(secrets.token_hex(32))'"
+        )
+
     # Ensure required directories exist
     session_dir = Path(app.config['SESSION_FILE_DIR'])
     session_dir.mkdir(parents=True, exist_ok=True)
 
     # Initialize extensions
     Session(app)
+    csrf.init_app(app)
+
+    # Initialize CORS with configured origins
+    CORS(app, origins=app.config['CORS_ALLOWED_ORIGINS'],
+         supports_credentials=True)
+
+    # Initialize SocketIO with security settings from config
     socketio.init_app(app,
-                      cors_allowed_origins="*",
+                      cors_allowed_origins=app.config['CORS_ALLOWED_ORIGINS'],
                       async_mode='threading',
-                      logger=True,
-                      engineio_logger=True)
+                      logger=app.config['SOCKETIO_LOGGER'],
+                      engineio_logger=app.config['SOCKETIO_ENGINEIO_LOGGER'])
 
     # Register blueprints
     from flask_app.routes.dashboard import dashboard_bp
