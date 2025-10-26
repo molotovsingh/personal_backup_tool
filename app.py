@@ -105,7 +105,7 @@ if st.session_state.get('show_recovery_prompt', False):
     st.sidebar.markdown("---")
     st.sidebar.warning(f"⚠️ {interrupted_count} interrupted job(s) found")
 
-    if st.sidebar.button("Resume Interrupted Jobs"):
+    if st.sidebar.button("Recover (mark as paused)", help="Ensures safe state; you can resume manually."):
         manager = JobManager()
         resumed = 0
         for job in st.session_state.interrupted_jobs:
@@ -120,15 +120,8 @@ if st.session_state.get('show_recovery_prompt', False):
         st.sidebar.success(f"✓ Marked {resumed} job(s) as paused. You can restart them manually.")
         st.rerun()
 
-    if st.sidebar.button("Ignore"):
-        # Mark all as paused
-        manager = JobManager()
-        for job in st.session_state.interrupted_jobs:
-            job_obj = manager.storage.get_job(job['id'])
-            if job_obj:
-                job_obj.update_status('paused')
-                manager.storage.update_job(job_obj)
-
+    if st.sidebar.button("Dismiss"):
+        # Dismiss without modifying job statuses
         st.session_state.show_recovery_prompt = False
         st.rerun()
 
@@ -371,7 +364,7 @@ elif page == "Jobs":
     if has_running_jobs_on_jobs_page:
         st_autorefresh(interval=refresh_interval * 1000, key="jobs_refresh")
 
-    # Title with LIVE indicator
+    # Title with LIVE indicator or manual refresh
     if has_running_jobs_on_jobs_page:
         col1, col2 = st.columns([3, 1])
         with col1:
@@ -380,7 +373,13 @@ elif page == "Jobs":
             st.markdown("### 🔴 LIVE")
             st.caption(f"Updates every {refresh_interval}s")
     else:
-        st.title("Backup Jobs")
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.title("Backup Jobs")
+        with col2:
+            st.write("")  # Spacer for alignment
+            if st.button("🔄 Refresh", help="Refresh job statuses"):
+                st.rerun()
 
     # Initialize session state for form visibility
     if 'show_create_form' not in st.session_state:
@@ -571,6 +570,69 @@ elif page == "Jobs":
                     help="Maximum transfer speed in KB/s"
                 )
 
+            # Source deletion settings
+            st.markdown("---")
+            st.markdown("#### 🗑️ Source Deletion Settings")
+
+            delete_source_after = st.checkbox(
+                "Delete source files after successful backup",
+                value=False,
+                help="⚠️ WARNING: This will permanently delete source files after backup completes"
+            )
+
+            deletion_mode = 'verify_then_delete'
+            deletion_confirmed = False
+
+            if delete_source_after:
+                st.warning("⚠️ **WARNING: Source files will be permanently deleted after backup!**")
+
+                # Deletion mode selection
+                deletion_mode = st.radio(
+                    "Deletion Mode",
+                    options=['verify_then_delete', 'per_file'],
+                    format_func=lambda x: {
+                        'verify_then_delete': '🔒 Verify Then Delete (Safest - Recommended)',
+                        'per_file': '⚡ Per-File Deletion (Faster, less safe)'
+                    }[x],
+                    help="Verify-then-delete: Transfer all files, verify backup integrity, then delete. Per-file: Delete each file immediately after transfer."
+                )
+
+                # Show mode explanation
+                if deletion_mode == 'verify_then_delete':
+                    st.info(
+                        "✅ **Verify-then-delete mode:**\n"
+                        "1. Transfer all files to destination\n"
+                        "2. Verify backup integrity with checksums\n"
+                        "3. Delete source files only if verification passes\n"
+                        "4. Create detailed audit log"
+                    )
+                else:
+                    st.info(
+                        "⚡ **Per-file deletion mode:**\n"
+                        "- Each file is deleted immediately after successful transfer\n"
+                        "- Faster but less safe (no post-transfer verification)\n"
+                        "- Not recommended for critical data"
+                    )
+
+                # Safety features info
+                st.success(
+                    "🛡️ **Safety features enabled:**\n"
+                    "- Pre-deletion space verification (10% margin)\n"
+                    "- Complete audit log of all deletions\n"
+                    "- Deletion count tracking\n"
+                    "- Option to skip deletion on each run"
+                )
+
+                # Confirmation checkbox
+                deletion_confirmed = st.checkbox(
+                    "⚠️ I understand that source files will be PERMANENTLY DELETED and cannot be recovered",
+                    value=False,
+                    help="You must confirm this to enable deletion"
+                )
+
+                if not deletion_confirmed:
+                    st.error("❌ You must confirm the deletion risks to create a job with deletion enabled")
+
             # Form submission
             col1, col2 = st.columns([1, 1])
             with col1:
@@ -586,6 +648,10 @@ elif page == "Jobs":
                 if not dest_path or not dest_path.strip():
                     errors.append("Destination path is required")
 
+                # Validate deletion settings
+                if delete_source_after and not deletion_confirmed:
+                    errors.append("You must confirm the deletion risks to enable source deletion")
+
                 if errors:
                     for error in errors:
                         st.error(error)
@@ -595,6 +661,11 @@ elif page == "Jobs":
                     settings = {}
                     if bandwidth_limit:
                         settings['bandwidth_limit'] = bandwidth_limit
+
+                    # Add deletion settings
+                    settings['delete_source_after'] = delete_source_after
+                    settings['deletion_mode'] = deletion_mode
+                    settings['deletion_confirmed'] = deletion_confirmed
 
                     success, msg, job = manager.create_job(
                         name=job_name.strip(),
@@ -660,6 +731,16 @@ elif page == "Jobs":
                     st.write(f"**Status:** {job['status']}")
                     st.write(f"**Created:** {job['created_at'][:19]}")
                     st.write(f"**Updated:** {job['updated_at'][:19]}")
+
+                    # Deletion settings indicator
+                    settings = job.get('settings', {})
+                    if settings.get('delete_source_after', False):
+                        deletion_mode = settings.get('deletion_mode', 'verify_then_delete')
+                        mode_icon = '🔒' if deletion_mode == 'verify_then_delete' else '⚡'
+                        mode_text = 'Verify-Delete' if deletion_mode == 'verify_then_delete' else 'Per-File'
+                        st.warning(f"🗑️ **Source deletion enabled:** {mode_icon} {mode_text}")
+                    else:
+                        st.caption("🗑️ Source deletion: Disabled")
 
                 # Show error information for failed jobs
                 if job['status'] == 'failed':
@@ -739,29 +820,48 @@ elif page == "Jobs":
                             else:
                                 st.metric("ETA", f"{eta_seconds}s")
 
+                    # Deletion progress indicator
+                    deletion_info = progress.get('deletion', {})
+                    if deletion_info.get('enabled', False):
+                        st.markdown("---")
+                        deletion_phase = deletion_info.get('phase', 'none')
+
+                        if deletion_phase == 'verifying':
+                            st.info("🔍 **Verifying backup integrity before deletion...**")
+                        elif deletion_phase == 'deleting':
+                            files_deleted = deletion_info.get('files_deleted', 0)
+                            bytes_deleted = deletion_info.get('bytes_deleted', 0)
+                            if bytes_deleted > 1024**3:
+                                size_str = f"{bytes_deleted / 1024**3:.2f} GB"
+                            elif bytes_deleted > 1024**2:
+                                size_str = f"{bytes_deleted / 1024**2:.2f} MB"
+                            else:
+                                size_str = f"{bytes_deleted / 1024:.2f} KB"
+                            st.warning(f"🗑️ **Deleting source files:** {files_deleted} files ({size_str}) deleted")
+                        elif deletion_phase == 'completed' and job['status'] == 'completed':
+                            files_deleted = deletion_info.get('files_deleted', 0)
+                            bytes_deleted = deletion_info.get('bytes_deleted', 0)
+                            if bytes_deleted > 1024**3:
+                                size_str = f"{bytes_deleted / 1024**3:.2f} GB"
+                            elif bytes_deleted > 1024**2:
+                                size_str = f"{bytes_deleted / 1024**2:.2f} MB"
+                            else:
+                                size_str = f"{bytes_deleted / 1024:.2f} KB"
+                            st.success(f"✅ **Source deleted:** {files_deleted} files ({size_str}) successfully deleted")
+
                 # Control buttons
                 st.markdown("---")
                 col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
 
                 with col1:
                     # Start/Resume/Retry button - show for pending, paused, or failed jobs
-                    if job['status'] == 'paused':
+                    # Show status badge for completed jobs
+                    if job['status'] == 'completed':
+                        st.caption("✓ Completed")
+                    elif job['status'] == 'paused':
                         # Show Resume for paused jobs
                         button_label = "▶️ Resume"
                         button_help = "Resume from where the job was paused"
-                    elif job['status'] == 'failed':
-                        # Show Retry for failed jobs
-                        button_label = "🔄 Retry"
-                        button_help = "Retry this backup job from the beginning"
-                    elif job['status'] == 'pending':
-                        # Show Start for new jobs
-                        button_label = "▶️ Start"
-                        button_help = "Start this backup job"
-                    else:
-                        button_label = "▶️ Start"
-                        button_help = None
-
-                    if job['status'] in ['pending', 'paused', 'failed']:
                         if st.button(button_label, key=f"start_{job['id']}", use_container_width=True, help=button_help):
                             success, msg = manager.start_job(job['id'])
                             if success:
@@ -769,8 +869,29 @@ elif page == "Jobs":
                                 st.rerun()
                             else:
                                 st.error(msg)
-                    else:
-                        st.button(button_label, disabled=True, key=f"start_{job['id']}_disabled", use_container_width=True)
+                    elif job['status'] == 'failed':
+                        # Show Retry for failed jobs
+                        button_label = "🔄 Retry"
+                        button_help = "Retry this backup job from the beginning"
+                        if st.button(button_label, key=f"start_{job['id']}", use_container_width=True, help=button_help):
+                            success, msg = manager.start_job(job['id'])
+                            if success:
+                                st.success(msg)
+                                st.rerun()
+                            else:
+                                st.error(msg)
+                    elif job['status'] == 'pending':
+                        # Show Start for new jobs
+                        button_label = "▶️ Start"
+                        button_help = "Start this backup job"
+                        if st.button(button_label, key=f"start_{job['id']}", use_container_width=True, help=button_help):
+                            success, msg = manager.start_job(job['id'])
+                            if success:
+                                st.success(msg)
+                                st.rerun()
+                            else:
+                                st.error(msg)
+                    # For running jobs, don't show any button in col1
 
                 with col2:
                     # Pause button - only show if job is running
@@ -783,8 +904,7 @@ elif page == "Jobs":
                                 st.rerun()
                             else:
                                 st.error(msg)
-                    else:
-                        st.button("⏸️ Pause", disabled=True, key=f"pause_{job['id']}_disabled", use_container_width=True)
+                    # Don't show disabled Pause button for other statuses
 
                 with col3:
                     # Delete button - always available
@@ -802,6 +922,25 @@ elif page == "Jobs":
                                 st.rerun()
                             else:
                                 st.error(msg)
+
+                with col4:
+                    # Skip deletion toggle - only show for jobs with deletion enabled
+                    settings = job.get('settings', {})
+                    if settings.get('delete_source_after', False) and job['status'] in ['pending', 'paused', 'failed']:
+                        skip_deletion = settings.get('skip_deletion_this_run', False)
+                        button_label = "✅ Enable Deletion" if skip_deletion else "⏭️ Skip Deletion"
+                        button_help = "Enable deletion for this run" if skip_deletion else "Skip source deletion for this run only"
+
+                        if st.button(button_label, key=f"skip_deletion_{job['id']}", use_container_width=True, help=button_help):
+                            # Toggle the skip_deletion_this_run setting
+                            job_obj = manager.storage.get_job(job['id'])
+                            if job_obj:
+                                job_obj.settings['skip_deletion_this_run'] = not skip_deletion
+                                job_obj.updated_at = datetime.now().isoformat()
+                                manager.storage.update_job(job_obj)
+                                action = "enabled" if skip_deletion else "skipped"
+                                st.success(f"Deletion {action} for this run")
+                                st.rerun()
 
     # Show last updated timestamp
     if has_running_jobs_on_jobs_page:
@@ -933,126 +1072,249 @@ elif page == "Logs":
     log_dir = Path.home() / "backup-manager" / "logs"
     logs = list(log_dir.glob("*.log")) if log_dir.exists() else []
 
-    if not logs:
-        st.info("No log files found")
-    else:
-        # Load all jobs to map UUIDs to job names
-        manager = JobManager()
-        all_jobs = manager.list_jobs()
-        uuid_to_name = {job['id']: job['name'] for job in all_jobs}
+    # Tab selection for different log types
+    log_tab = st.radio(
+        "Log Type",
+        options=["📦 Backup Logs", "🗑️ Deletion Logs"],
+        horizontal=True,
+        label_visibility="collapsed"
+    )
 
-        # Helper function to extract UUID from log filename
-        def extract_uuid_from_log(log_path):
-            """Extract UUID from log filename like 'rsync_<uuid>.log' or 'rclone_<uuid>.log'"""
-            stem = log_path.stem  # e.g., 'rsync_54090955-ee2b-4906-af9a-c85dd466f2b9'
-            parts = stem.split('_', 1)  # Split on first underscore
-            return parts[1] if len(parts) > 1 else stem
+    st.markdown("---")
 
-        # Create mapping: log file -> (job_name, uuid, filename)
-        log_info = []
-        for log in logs:
-            uuid = extract_uuid_from_log(log)
-            job_name = uuid_to_name.get(uuid, f"⚠️ Unknown ({uuid[:8]}...)")
-            log_info.append({
-                'path': log,
-                'uuid': uuid,
-                'job_name': job_name,
-                'display_name': f"📦 {job_name}"
-            })
+    if log_tab == "🗑️ Deletion Logs":
+        # Deletion logs viewer
+        st.subheader("🗑️ Deletion Audit Logs")
 
-        # Filter options
-        col1, col2, col3 = st.columns([2, 2, 1])
+        deletion_logs = list(log_dir.glob("deletions_*.log")) if log_dir.exists() else []
 
-        with col1:
-            # Job filter - show job names instead of raw filenames
-            job_options = ["All"] + [info['display_name'] for info in log_info]
-            selected_job = st.selectbox("Filter by Job", job_options)
-
-        with col2:
-            # Search
-            search_term = st.text_input("Search logs", placeholder="e.g., error, completed, retry")
-
-        with col3:
-            # Refresh button
-            if st.button("🔄 Refresh"):
-                st.rerun()
-
-        # Get filtered logs
-        filtered_log_info = log_info
-        if selected_job != "All":
-            filtered_log_info = [info for info in log_info if info['display_name'] == selected_job]
-
-        if not filtered_log_info:
-            st.warning("No logs match the filter")
+        if not deletion_logs:
+            st.info("No deletion logs found. Deletion logs are created when jobs with source deletion complete.")
         else:
-            # Read and combine log contents (with limit to prevent memory issues)
-            MAX_LINES_PER_FILE = 1000  # Limit lines per file to prevent memory issues
-            all_lines = []
-            for info in filtered_log_info:
-                log = info['path']
-                try:
-                    # Read file line by line instead of loading all at once
-                    with open(log, 'r') as f:
-                        # Read from end if file is large
-                        f.seek(0, 2)  # Seek to end
-                        file_size = f.tell()
+            # Load all jobs to map UUIDs to job names
+            manager = JobManager()
+            all_jobs = manager.list_jobs()
+            uuid_to_name = {job['id']: job['name'] for job in all_jobs}
 
-                        if file_size > 100000:  # If file > 100KB, read last portion only
-                            # Read last ~100KB for efficiency
-                            f.seek(max(0, file_size - 100000))
-                            f.readline()  # Skip partial line
-                        else:
-                            f.seek(0)  # Read from beginning for small files
+            # Helper function to extract UUID from deletion log filename
+            def extract_uuid_from_deletion_log(log_path):
+                """Extract UUID from log filename like 'deletions_<uuid>.log'"""
+                stem = log_path.stem  # e.g., 'deletions_54090955-ee2b-4906-af9a-c85dd466f2b9'
+                parts = stem.split('_', 1)  # Split on first underscore
+                return parts[1] if len(parts) > 1 else stem
 
-                        line_count = 0
-                        for line in f:
-                            # Store job name and UUID with line for better display
-                            job_label = f"{info['job_name']} ({info['uuid'][:8]}...)"
-                            all_lines.append((job_label, line))
-                            line_count += 1
-                            if line_count >= MAX_LINES_PER_FILE:
-                                st.info(f"⚠️ Showing last {MAX_LINES_PER_FILE} lines from {info['job_name']} (file truncated)")
-                                break
-                except Exception as e:
-                    st.error(f"Error reading {info['job_name']}: {e}")
+            # Create mapping: log file -> (job_name, uuid, filename)
+            deletion_log_info = []
+            for log in deletion_logs:
+                uuid = extract_uuid_from_deletion_log(log)
+                job_name = uuid_to_name.get(uuid, f"⚠️ Unknown ({uuid[:8]}...)")
+                deletion_log_info.append({
+                    'path': log,
+                    'uuid': uuid,
+                    'job_name': job_name,
+                    'display_name': f"🗑️ {job_name}"
+                })
 
-            # Apply search filter
-            if search_term:
-                all_lines = [(job, line) for job, line in all_lines
-                             if search_term.lower() in line.lower()]
+            # Filter options
+            col1, col2, col3 = st.columns([2, 2, 1])
 
-            # Display results
-            st.markdown(f"**Showing {len(all_lines)} line(s)**")
+            with col1:
+                # Job filter
+                job_options = ["All"] + [info['display_name'] for info in deletion_log_info]
+                selected_deletion_job = st.selectbox("Filter by Job", job_options, key="deletion_job_filter")
 
-            if not all_lines:
-                st.info("No matching log entries")
+            with col2:
+                # Search
+                search_deletion_term = st.text_input("Search deletion logs", placeholder="e.g., deleted, verified", key="deletion_search")
+
+            with col3:
+                # Refresh button
+                if st.button("🔄 Refresh", key="deletion_refresh"):
+                    st.rerun()
+
+            # Get filtered logs
+            filtered_deletion_log_info = deletion_log_info
+            if selected_deletion_job != "All":
+                filtered_deletion_log_info = [info for info in deletion_log_info if info['display_name'] == selected_deletion_job]
+
+            if not filtered_deletion_log_info:
+                st.warning("No deletion logs match the filter")
             else:
-                # Export button
-                col1, col2 = st.columns([1, 5])
-                with col1:
-                    # Create download content
-                    export_content = "\n".join([f"[{job}] {line.strip()}" for job, line in all_lines])
-                    st.download_button(
-                        label="📥 Export",
-                        data=export_content,
-                        file_name=f"backup_logs_{selected_job}.txt",
-                        mime="text/plain"
+                # Read and combine deletion log contents
+                MAX_LINES_PER_FILE = 1000
+                deletion_lines = []
+                for info in filtered_deletion_log_info:
+                    log = info['path']
+                    try:
+                        with open(log, 'r') as f:
+                            # Read from end if file is large
+                            f.seek(0, 2)  # Seek to end
+                            file_size = f.tell()
+
+                            if file_size > 100000:  # If file > 100KB, read last portion only
+                                f.seek(max(0, file_size - 100000))
+                                f.readline()  # Skip partial line
+                            else:
+                                f.seek(0)
+
+                            line_count = 0
+                            for line in f:
+                                job_label = f"{info['job_name']} ({info['uuid'][:8]}...)"
+                                deletion_lines.append((job_label, line))
+                                line_count += 1
+                                if line_count >= MAX_LINES_PER_FILE:
+                                    st.info(f"⚠️ Showing last {MAX_LINES_PER_FILE} lines from {info['job_name']} (file truncated)")
+                                    break
+                    except Exception as e:
+                        st.error(f"Error reading {info['job_name']}: {e}")
+
+                # Apply search filter
+                if search_deletion_term:
+                    deletion_lines = [(job, line) for job, line in deletion_lines
+                                    if search_deletion_term.lower() in line.lower()]
+
+                # Display results
+                st.markdown(f"**Showing {len(deletion_lines)} line(s)**")
+
+                if not deletion_lines:
+                    st.info("No matching deletion log entries")
+                else:
+                    # Show deletion summary at top
+                    total_deletions = sum(1 for _, line in deletion_lines if 'Deleted file:' in line)
+                    if total_deletions > 0:
+                        st.success(f"📊 **Total deletions in view:** {total_deletions} files")
+
+                    # Display logs in a scrollable container
+                    log_text = "\n".join([f"[{job}] {line.rstrip()}" for job, line in deletion_lines])
+                    st.text_area(
+                        "Deletion Log Contents",
+                        value=log_text,
+                        height=500,
+                        key="deletion_log_display",
+                        label_visibility="collapsed"
                     )
 
-                st.markdown("---")
-
-                # Display logs with syntax highlighting
-                log_text = ""
-                for job, line in all_lines[-500:]:  # Show last 500 lines
-                    # Highlight search term
-                    if search_term and search_term.lower() in line.lower():
-                        log_text += f"➤ [{job}] {line}"
-                    else:
-                        log_text += f"  [{job}] {line}"
-
-                st.code(log_text, language="log")
-
-# Footer
-st.sidebar.markdown("---")
-st.sidebar.caption("Backup Manager v0.1")
-st.sidebar.caption("Managing your backups safely")
+    else:  # Show backup logs when backup logs tab is selected
+        if not logs:
+            st.info("No log files found")
+        else:
+            # Load all jobs to map UUIDs to job names
+            manager = JobManager()
+            all_jobs = manager.list_jobs()
+            uuid_to_name = {job['id']: job['name'] for job in all_jobs}
+    
+            # Helper function to extract UUID from log filename
+            def extract_uuid_from_log(log_path):
+                """Extract UUID from log filename like 'rsync_<uuid>.log' or 'rclone_<uuid>.log'"""
+                stem = log_path.stem  # e.g., 'rsync_54090955-ee2b-4906-af9a-c85dd466f2b9'
+                parts = stem.split('_', 1)  # Split on first underscore
+                return parts[1] if len(parts) > 1 else stem
+    
+            # Create mapping: log file -> (job_name, uuid, filename)
+            log_info = []
+            for log in logs:
+                uuid = extract_uuid_from_log(log)
+                job_name = uuid_to_name.get(uuid, f"⚠️ Unknown ({uuid[:8]}...)")
+                log_info.append({
+                    'path': log,
+                    'uuid': uuid,
+                    'job_name': job_name,
+                    'display_name': f"📦 {job_name}"
+                })
+    
+            # Filter options
+            col1, col2, col3 = st.columns([2, 2, 1])
+    
+            with col1:
+                # Job filter - show job names instead of raw filenames
+                job_options = ["All"] + [info['display_name'] for info in log_info]
+                selected_job = st.selectbox("Filter by Job", job_options)
+    
+            with col2:
+                # Search
+                search_term = st.text_input("Search logs", placeholder="e.g., error, completed, retry")
+    
+            with col3:
+                # Refresh button
+                if st.button("🔄 Refresh"):
+                    st.rerun()
+    
+            # Get filtered logs
+            filtered_log_info = log_info
+            if selected_job != "All":
+                filtered_log_info = [info for info in log_info if info['display_name'] == selected_job]
+    
+            if not filtered_log_info:
+                st.warning("No logs match the filter")
+            else:
+                # Read and combine log contents (with limit to prevent memory issues)
+                MAX_LINES_PER_FILE = 1000  # Limit lines per file to prevent memory issues
+                all_lines = []
+                for info in filtered_log_info:
+                    log = info['path']
+                    try:
+                        # Read file line by line instead of loading all at once
+                        with open(log, 'r') as f:
+                            # Read from end if file is large
+                            f.seek(0, 2)  # Seek to end
+                            file_size = f.tell()
+    
+                            if file_size > 100000:  # If file > 100KB, read last portion only
+                                # Read last ~100KB for efficiency
+                                f.seek(max(0, file_size - 100000))
+                                f.readline()  # Skip partial line
+                            else:
+                                f.seek(0)  # Read from beginning for small files
+    
+                            line_count = 0
+                            for line in f:
+                                # Store job name and UUID with line for better display
+                                job_label = f"{info['job_name']} ({info['uuid'][:8]}...)"
+                                all_lines.append((job_label, line))
+                                line_count += 1
+                                if line_count >= MAX_LINES_PER_FILE:
+                                    st.info(f"⚠️ Showing last {MAX_LINES_PER_FILE} lines from {info['job_name']} (file truncated)")
+                                    break
+                    except Exception as e:
+                        st.error(f"Error reading {info['job_name']}: {e}")
+    
+                # Apply search filter
+                if search_term:
+                    all_lines = [(job, line) for job, line in all_lines
+                                 if search_term.lower() in line.lower()]
+    
+                # Display results
+                st.markdown(f"**Showing {len(all_lines)} line(s)**")
+    
+                if not all_lines:
+                    st.info("No matching log entries")
+                else:
+                    # Export button
+                    col1, col2 = st.columns([1, 5])
+                    with col1:
+                        # Create download content
+                        export_content = "\n".join([f"[{job}] {line.strip()}" for job, line in all_lines])
+                        st.download_button(
+                            label="📥 Export",
+                            data=export_content,
+                            file_name=f"backup_logs_{selected_job}.txt",
+                            mime="text/plain"
+                        )
+    
+                    st.markdown("---")
+    
+                    # Display logs with syntax highlighting
+                    log_text = ""
+                    for job, line in all_lines[-500:]:  # Show last 500 lines
+                        # Highlight search term
+                        if search_term and search_term.lower() in line.lower():
+                            log_text += f"➤ [{job}] {line}"
+                        else:
+                            log_text += f"  [{job}] {line}"
+    
+                    st.code(log_text, language="log")
+    
+    # Footer
+    st.sidebar.markdown("---")
+    st.sidebar.caption("Backup Manager v0.1")
+    st.sidebar.caption("Managing your backups safely")

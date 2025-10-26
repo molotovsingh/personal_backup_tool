@@ -8,6 +8,8 @@ from models.job import Job
 from storage.job_storage import JobStorage
 from engines.rsync_engine import RsyncEngine
 from utils.validation import validate_job_before_start
+from utils.safety_checks import validate_deletion_safety
+from utils.deletion_logger import DeletionLogger
 
 
 class JobManager:
@@ -117,6 +119,25 @@ class JobManager:
             if not valid:
                 return False, f"Pre-start validation failed: {error_msg}"
 
+            # Safety checks for deletion (if enabled)
+            deletion_logger = None
+            if job.should_delete_source():
+                # Run safety checks before starting job with deletion
+                safe, safety_msg = validate_deletion_safety(
+                    job.source,
+                    job.dest,
+                    require_space_check=True
+                )
+                if not safe:
+                    return False, f"Deletion safety check failed: {safety_msg}"
+
+                # Create deletion logger for this job
+                deletion_logger = DeletionLogger(job.id)
+                deletion_logger.log_deletion_start(
+                    mode=job.deletion_mode,
+                    total_files=0  # Will be updated during backup
+                )
+
             # Create appropriate engine
             # Get settings including verification mode
             from core.settings import get_settings
@@ -132,7 +153,10 @@ class JobManager:
                     job_id=job.id,
                     bandwidth_limit=job.settings.get('bandwidth_limit'),
                     max_retries=max_retries,
-                    verification_mode=verification_mode
+                    verification_mode=verification_mode,
+                    delete_source_after=job.should_delete_source(),
+                    deletion_mode=job.deletion_mode,
+                    deletion_logger=deletion_logger
                 )
             elif job.type == Job.TYPE_RCLONE:
                 # Import here to avoid circular dependency if rclone engine imports Job
@@ -144,7 +168,10 @@ class JobManager:
                         job_id=job.id,
                         bandwidth_limit=job.settings.get('bandwidth_limit'),
                         max_retries=max_retries,
-                        verification_mode=verification_mode
+                        verification_mode=verification_mode,
+                        delete_source_after=job.should_delete_source(),
+                        deletion_mode=job.deletion_mode,
+                        deletion_logger=deletion_logger
                     )
                 except ImportError:
                     return False, "Rclone engine not yet implemented"
