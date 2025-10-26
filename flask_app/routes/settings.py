@@ -1,8 +1,8 @@
 """
 Settings routes
 """
-from flask import Blueprint, render_template, request, flash, jsonify
-from core.settings import get_settings, Settings
+from flask import Blueprint, render_template, request, flash
+from core.settings import get_settings
 from utils.rclone_helper import is_rclone_installed
 import shutil
 import os

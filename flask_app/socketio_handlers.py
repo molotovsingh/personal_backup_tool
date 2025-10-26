@@ -3,6 +3,7 @@ WebSocket event handlers for Flask-SocketIO
 """
 import threading
 import time
+import atexit
 from flask_socketio import emit, join_room, leave_room
 from flask import request
 from flask_app import socketio
@@ -83,24 +84,17 @@ def job_update_background_thread():
     print('Job update background thread stopped')
 
 
-def emit_job_update(job_id, progress_data):
-    """Emit job progress update to all clients"""
-    socketio.emit('job_update',
-                  {'job_id': job_id, **progress_data})
-
-
-def emit_job_status_change(job_id, old_status, new_status):
-    """Emit job status change to all clients"""
-    socketio.emit('job_update', {
-        'job_id': job_id,
-        'status': new_status,
-        'old_status': old_status
-    })
-
-
-def stop_background_thread():
-    """Stop the background update thread"""
+def cleanup_background_thread():
+    """Gracefully stop background thread on app shutdown"""
     global background_thread
     if background_thread:
+        print('Stopping background thread...')
         thread_stop_event.set()
+        # Give thread time to finish cleanly
+        time.sleep(1.5)
         background_thread = None
+        print('Background thread stopped')
+
+
+# Register cleanup function to run on app shutdown
+atexit.register(cleanup_background_thread)
