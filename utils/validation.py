@@ -97,58 +97,90 @@ def validate_destination_writable(path: str) -> Tuple[bool, str]:
     Returns:
         Tuple of (is_valid, message)
     """
+    import uuid
+
+    def test_write_permission(test_dir: Path, location_name: str) -> Tuple[bool, str]:
+        """Helper to test write permissions with proper cleanup"""
+        # Use unique filename to avoid conflicts
+        test_file = test_dir / f'.backup_manager_test_{uuid.uuid4().hex[:8]}'
+
+        try:
+            # Remove existing test file if any (cleanup from previous failed runs)
+            if test_file.exists():
+                try:
+                    test_file.unlink()
+                except Exception:
+                    pass  # Ignore cleanup errors
+
+            # Try to create and remove test file
+            test_file.touch()
+            test_file.unlink()
+            return True, f"{location_name} is writable"
+
+        except PermissionError:
+            return False, f"{location_name} is not writable: {test_dir}"
+        except OSError as e:
+            # Handle "Resource busy" and other OS errors
+            if e.errno == 16:  # Resource busy
+                # Try to clean up stale test files
+                for old_test in test_dir.glob('.backup_manager_test*'):
+                    try:
+                        old_test.unlink()
+                    except Exception:
+                        pass
+                # Retry once after cleanup
+                try:
+                    test_file.touch()
+                    test_file.unlink()
+                    return True, f"{location_name} is writable (after cleanup)"
+                except Exception:
+                    return False, f"{location_name} may not be writable (resource busy)"
+            return False, f"{location_name} write test failed: {str(e)}"
+        except Exception as e:
+            return False, f"Error testing {location_name}: {str(e)}"
+        finally:
+            # Ensure cleanup
+            try:
+                if test_file.exists():
+                    test_file.unlink()
+            except Exception:
+                pass  # Ignore cleanup errors
+
     try:
         path_obj = Path(path)
 
         if path_obj.exists():
             # Check if writable
             if path_obj.is_dir():
-                # Try to create a test file
-                test_file = path_obj / '.backup_manager_test'
-                try:
-                    test_file.touch()
-                    test_file.unlink()
-                    return True, "Destination is writable"
-                except PermissionError:
-                    return False, f"Destination directory is not writable: {path}"
+                return test_write_permission(path_obj, "Destination")
             else:
                 # It's a file, check if we can write to parent
                 parent = path_obj.parent
                 if not parent.exists():
                     return False, f"Destination parent directory does not exist: {parent}"
-
-                test_file = parent / '.backup_manager_test'
-                try:
-                    test_file.touch()
-                    test_file.unlink()
-                    return True, "Destination parent is writable"
-                except PermissionError:
-                    return False, f"Destination parent is not writable: {parent}"
+                return test_write_permission(parent, "Destination parent")
         else:
             # Path doesn't exist, check parent
             parent = path_obj.parent
             if not parent.exists():
                 return False, f"Destination parent directory does not exist: {parent}"
-
-            # Try to create test file in parent
-            test_file = parent / '.backup_manager_test'
-            try:
-                test_file.touch()
-                test_file.unlink()
-                return True, "Destination parent is writable"
-            except PermissionError:
-                return False, f"Destination parent is not writable: {parent}"
+            return test_write_permission(parent, "Destination parent")
 
     except Exception as e:
         return False, f"Error validating destination: {str(e)}"
 
 
-def estimate_source_size(path: str) -> Tuple[bool, str, int]:
+def estimate_source_size(path: str, quick_check_only: bool = False, max_files_to_scan: int = 1000) -> Tuple[bool, str, int]:
     """
     Estimate total size of source path
 
+    PERFORMANCE NOTE: For large directories (100K+ files), full estimation can take minutes!
+    Use quick_check_only=True to skip size estimation for large dirs.
+
     Args:
         path: Source path to measure
+        quick_check_only: If True, only do quick checks and return 0 for large directories
+        max_files_to_scan: Maximum number of files to scan before giving up (default 1000)
 
     Returns:
         Tuple of (success, message, size_in_bytes)
@@ -163,7 +195,17 @@ def estimate_source_size(path: str) -> Tuple[bool, str, int]:
             size = path_obj.stat().st_size
             return True, f"File size: {size / 1024**3:.2f}GB", size
 
-        # For directories, calculate total size
+        # For directories, do a quick check first
+        if quick_check_only:
+            # Just confirm the directory exists and is readable
+            try:
+                # Try to list the directory to confirm it's readable
+                next(path_obj.iterdir(), None)
+                return True, "Directory size check skipped (large directory)", 0
+            except (PermissionError, OSError) as e:
+                return False, f"Directory not readable: {str(e)}", 0
+
+        # For directories, calculate total size with a limit
         total_size = 0
         file_count = 0
 
@@ -172,6 +214,12 @@ def estimate_source_size(path: str) -> Tuple[bool, str, int]:
                 try:
                     total_size += item.stat().st_size
                     file_count += 1
+
+                    # Stop if we've scanned too many files (prevents hanging)
+                    if file_count >= max_files_to_scan:
+                        # Return estimated size but indicate it's incomplete
+                        return True, f"Directory size (estimated, stopped at {file_count} files): >{total_size / 1024**3:.2f}GB", 0
+
                 except (PermissionError, OSError):
                     continue
 
@@ -207,10 +255,19 @@ def validate_job_before_start(source: str, dest: str, job_type: str) -> Tuple[bo
         if not valid:
             errors.append(msg)
 
-        # Check disk space
-        success, msg, source_size = estimate_source_size(source)
+        # Check disk space (use quick mode to avoid hanging on large directories)
+        # NOTE: We use quick_check_only=True to prevent blocking for minutes on large directories
+        # rsync will fail gracefully if it runs out of space during the backup anyway
+        success, msg, source_size = estimate_source_size(source, quick_check_only=True)
+
+        # Only check disk space if we got a reliable size estimate
         if success and source_size > 0:
             has_space, space_msg, available = check_disk_space(dest, source_size)
+            if not has_space:
+                errors.append(space_msg)
+        # If size is 0 (quick check or large directory), just verify destination has SOME space
+        elif success:
+            has_space, space_msg, available = check_disk_space(dest, 0)
             if not has_space:
                 errors.append(space_msg)
 
