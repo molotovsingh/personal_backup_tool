@@ -72,7 +72,8 @@ def job_update_background_thread():
                         'bytes_transferred': job['progress'].get('bytes_transferred', 0),
                         'total_bytes': job['progress'].get('total_bytes', 0),
                         'speed_bytes': job['progress'].get('speed_bytes', 0),
-                        'eta_seconds': job['progress'].get('eta_seconds', 0)
+                        'eta_seconds': job['progress'].get('eta_seconds', 0),
+                        'deletion': job['progress'].get('deletion', {})
                     })
 
         except Exception as e:

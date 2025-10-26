@@ -210,6 +210,47 @@
                     etaInfo.textContent = 'ETA: ' + formatDuration(data.eta_seconds);
                 }
             }
+
+            // Update deletion progress
+            if (data.deletion && data.deletion.enabled) {
+                const deletionProgress = jobCard.querySelector('.deletion-progress');
+                if (deletionProgress) {
+                    const phaseText = deletionProgress.querySelector('.deletion-phase-text');
+                    const filesCount = deletionProgress.querySelector('.deletion-files-count');
+                    const bytesCount = deletionProgress.querySelector('.deletion-bytes-count');
+
+                    // Update phase-specific text
+                    if (phaseText) {
+                        let phaseHtml = '';
+                        const phase = data.deletion.phase;
+
+                        if (phase === 'transfer') {
+                            phaseHtml = '<span class="text-yellow-700">Transferring files...</span>';
+                        } else if (phase === 'verifying') {
+                            phaseHtml = '<span class="text-blue-700">🔍 Verifying backup integrity...</span>';
+                        } else if (phase === 'deleting') {
+                            const files = data.deletion.files_deleted || 0;
+                            const mb = (data.deletion.bytes_deleted / 1024 / 1024).toFixed(2) || '0.00';
+                            phaseHtml = `<span class="text-red-700">🗑️ Deleting source files... (${files} files, ${mb} MB)</span>`;
+                        } else if (phase === 'completed') {
+                            const files = data.deletion.files_deleted || 0;
+                            phaseHtml = `<span class="text-green-700">✅ Deletion completed (${files} files deleted)</span>`;
+                        } else if (phase === 'failed') {
+                            phaseHtml = '<span class="text-red-700">❌ Deletion failed</span>';
+                        }
+
+                        phaseText.innerHTML = phaseHtml;
+                    }
+
+                    // Update counters separately if they exist (for deleting phase)
+                    if (filesCount && data.deletion.files_deleted !== undefined) {
+                        filesCount.textContent = data.deletion.files_deleted;
+                    }
+                    if (bytesCount && data.deletion.bytes_deleted !== undefined) {
+                        bytesCount.textContent = (data.deletion.bytes_deleted / 1024 / 1024).toFixed(2);
+                    }
+                }
+            }
         }
     });
 
