@@ -1,0 +1,30 @@
+{% if logs %}
+<div class="bg-gray-50 rounded-lg p-4 font-mono text-sm overflow-x-auto" style="max-height: 600px; overflow-y: auto;">
+    {% for log in logs %}
+    <div class="py-1 hover:bg-gray-100 px-2 rounded">
+        <span class="text-blue-600 font-semibold">[{{ log.job_name }}]</span>
+        {% if log.highlighted %}
+            {{ log.line | replace(log.highlighted, '<mark class="bg-yellow-200">' + log.highlighted + '</mark>') | safe }}
+        {% else %}
+            <span class="text-gray-700">{{ log.line }}</span>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+
+<div class="mt-4 text-sm text-gray-500 text-center">
+    Displaying {{ logs | length }} log entries
+    {% if search_term %}
+        matching "{{ search_term }}"
+    {% endif %}
+</div>
+{% else %}
+<div class="text-center py-12 text-gray-500">
+    <p class="text-lg mb-2">No logs found</p>
+    {% if search_term %}
+    <p class="text-sm">Try adjusting your search term or filter</p>
+    {% else %}
+    <p class="text-sm">No log files available yet. Run some backup jobs to generate logs.</p>
+    {% endif %}
+</div>
+{% endif %}
