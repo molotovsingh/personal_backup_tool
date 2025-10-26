@@ -30,6 +30,7 @@ class JobManager:
             self.storage = JobStorage()
             self.engines: Dict[str, any] = {}  # job_id -> engine instance
             self.last_progress_save: Dict[str, Tuple[float, int]] = {}  # job_id -> (timestamp, percent)
+            self._lock = threading.RLock()  # Re-entrant lock for job operations and storage access
             self._engines_lock = threading.Lock()  # Protect engines dict access
             JobManager._initialized = True
 
@@ -54,29 +55,30 @@ class JobManager:
         Returns:
             Tuple of (success, message, job_instance)
         """
-        try:
-            # Create job instance
-            job = Job(
-                name=name,
-                source=source,
-                dest=dest,
-                job_type=job_type,
-                settings=settings or {}
-            )
+        with self._lock:
+            try:
+                # Create job instance
+                job = Job(
+                    name=name,
+                    source=source,
+                    dest=dest,
+                    job_type=job_type,
+                    settings=settings or {}
+                )
 
-            # Validate paths
-            valid, error_msg = job.validate_paths()
-            if not valid:
-                return False, error_msg, None
+                # Validate paths
+                valid, error_msg = job.validate_paths()
+                if not valid:
+                    return False, error_msg, None
 
-            # Save to storage
-            if self.storage.save_job(job):
-                return True, f"Job '{name}' created successfully", job
-            else:
-                return False, "Failed to save job to storage", None
+                # Save to storage
+                if self.storage.save_job(job):
+                    return True, f"Job '{name}' created successfully", job
+                else:
+                    return False, "Failed to save job to storage", None
 
-        except Exception as e:
-            return False, f"Error creating job: {str(e)}", None
+            except Exception as e:
+                return False, f"Error creating job: {str(e)}", None
 
     def start_job(self, job_id: str) -> Tuple[bool, str]:
         """
@@ -88,81 +90,67 @@ class JobManager:
         Returns:
             Tuple of (success, message)
         """
-        try:
-            # Check if already running
-            with self._engines_lock:
-                if job_id in self.engines and self.engines[job_id].is_running():
-                    return False, "Job is already running"
+        with self._lock:
+            try:
+                # Check if already running
+                with self._engines_lock:
+                    if job_id in self.engines and self.engines[job_id].is_running():
+                        return False, "Job is already running"
 
-            # Load job from storage
-            job = self.storage.get_job(job_id)
-            if not job:
-                return False, f"Job {job_id} not found"
+                # Load job from storage
+                job = self.storage.get_job(job_id)
+                if not job:
+                    return False, f"Job {job_id} not found"
 
-            # Enforce valid status transitions
-            valid_start_statuses = [Job.STATUS_PENDING, Job.STATUS_PAUSED, Job.STATUS_FAILED]
-            if job.status not in valid_start_statuses:
-                if job.status == Job.STATUS_RUNNING:
-                    return False, "Job is already running"
-                elif job.status == Job.STATUS_COMPLETED:
-                    return False, "Cannot start completed job. Create a new job or delete this one."
-                else:
-                    return False, f"Cannot start job with status '{job.status}'"
+                # Enforce valid status transitions
+                valid_start_statuses = [Job.STATUS_PENDING, Job.STATUS_PAUSED, Job.STATUS_FAILED]
+                if job.status not in valid_start_statuses:
+                    if job.status == Job.STATUS_RUNNING:
+                        return False, "Job is already running"
+                    elif job.status == Job.STATUS_COMPLETED:
+                        return False, "Cannot start completed job. Create a new job or delete this one."
+                    else:
+                        return False, f"Cannot start job with status '{job.status}'"
 
-            # Validate paths before starting
-            valid, error_msg = job.validate_paths()
-            if not valid:
-                return False, f"Path validation failed: {error_msg}"
+                # Validate paths before starting
+                valid, error_msg = job.validate_paths()
+                if not valid:
+                    return False, f"Path validation failed: {error_msg}"
 
-            # Comprehensive validation (disk space, permissions, etc.)
-            valid, error_msg = validate_job_before_start(job.source, job.dest, job.type)
-            if not valid:
-                return False, f"Pre-start validation failed: {error_msg}"
+                # Comprehensive validation (disk space, permissions, etc.)
+                valid, error_msg = validate_job_before_start(job.source, job.dest, job.type)
+                if not valid:
+                    return False, f"Pre-start validation failed: {error_msg}"
 
-            # Safety checks for deletion (if enabled)
-            deletion_logger = None
-            if job.should_delete_source():
-                # Run safety checks before starting job with deletion
-                safe, safety_msg = validate_deletion_safety(
-                    job.source,
-                    job.dest,
-                    require_space_check=True
-                )
-                if not safe:
-                    return False, f"Deletion safety check failed: {safety_msg}"
+                # Safety checks for deletion (if enabled)
+                deletion_logger = None
+                if job.should_delete_source():
+                    # Run safety checks before starting job with deletion
+                    safe, safety_msg = validate_deletion_safety(
+                        job.source,
+                        job.dest,
+                        require_space_check=True
+                    )
+                    if not safe:
+                        return False, f"Deletion safety check failed: {safety_msg}"
 
-                # Create deletion logger for this job
-                deletion_logger = DeletionLogger(job.id)
-                deletion_logger.log_deletion_start(
-                    mode=job.deletion_mode,
-                    total_files=0  # Will be updated during backup
-                )
+                    # Create deletion logger for this job
+                    deletion_logger = DeletionLogger(job.id)
+                    deletion_logger.log_deletion_start(
+                        mode=job.deletion_mode,
+                        total_files=0  # Will be updated during backup
+                    )
 
-            # Create appropriate engine
-            # Get settings including verification mode
-            from core.settings import get_settings
-            settings = get_settings()
-            max_retries = settings.get('max_retry_attempts', 10)
-            verification_mode = settings.get('verification_mode', 'fast')
+                # Create appropriate engine
+                # Get settings including verification mode
+                from core.settings import get_settings
+                settings = get_settings()
+                max_retries = settings.get('max_retry_attempts', 10)
+                verification_mode = settings.get('verification_mode', 'fast')
 
-            engine = None
-            if job.type == Job.TYPE_RSYNC:
-                engine = RsyncEngine(
-                    source=job.source,
-                    dest=job.dest,
-                    job_id=job.id,
-                    bandwidth_limit=job.settings.get('bandwidth_limit'),
-                    max_retries=max_retries,
-                    verification_mode=verification_mode,
-                    delete_source_after=job.should_delete_source(),
-                    deletion_mode=job.deletion_mode,
-                    deletion_logger=deletion_logger
-                )
-            elif job.type == Job.TYPE_RCLONE:
-                # Import here to avoid circular dependency if rclone engine imports Job
-                try:
-                    from engines.rclone_engine import RcloneEngine
-                    engine = RcloneEngine(
+                engine = None
+                if job.type == Job.TYPE_RSYNC:
+                    engine = RsyncEngine(
                         source=job.source,
                         dest=job.dest,
                         job_id=job.id,
@@ -173,27 +161,42 @@ class JobManager:
                         deletion_mode=job.deletion_mode,
                         deletion_logger=deletion_logger
                     )
-                except ImportError:
-                    return False, "Rclone engine not yet implemented"
-            else:
-                return False, f"Unknown job type: {job.type}"
+                elif job.type == Job.TYPE_RCLONE:
+                    # Import here to avoid circular dependency if rclone engine imports Job
+                    try:
+                        from engines.rclone_engine import RcloneEngine
+                        engine = RcloneEngine(
+                            source=job.source,
+                            dest=job.dest,
+                            job_id=job.id,
+                            bandwidth_limit=job.settings.get('bandwidth_limit'),
+                            max_retries=max_retries,
+                            verification_mode=verification_mode,
+                            delete_source_after=job.should_delete_source(),
+                            deletion_mode=job.deletion_mode,
+                            deletion_logger=deletion_logger
+                        )
+                    except ImportError:
+                        return False, "Rclone engine not yet implemented"
+                else:
+                    return False, f"Unknown job type: {job.type}"
 
-            # Start engine
-            if engine.start():
-                with self._engines_lock:
-                    self.engines[job_id] = engine
-                    # Initialize progress tracking for periodic persistence
-                    self.last_progress_save[job_id] = (time.time(), 0)
+                # Start engine
+                if engine.start():
+                    with self._engines_lock:
+                        self.engines[job_id] = engine
+                        # Initialize progress tracking for periodic persistence
+                        self.last_progress_save[job_id] = (time.time(), 0)
 
-                job.update_status(Job.STATUS_RUNNING)
-                self.storage.update_job(job)
+                    job.update_status(Job.STATUS_RUNNING)
+                    self.storage.update_job(job)
 
-                return True, f"Job '{job.name}' started successfully"
-            else:
-                return False, "Failed to start backup engine"
+                    return True, f"Job '{job.name}' started successfully"
+                else:
+                    return False, "Failed to start backup engine"
 
-        except Exception as e:
-            return False, f"Error starting job: {str(e)}"
+            except Exception as e:
+                return False, f"Error starting job: {str(e)}"
 
     def stop_job(self, job_id: str) -> Tuple[bool, str]:
         """
@@ -205,37 +208,38 @@ class JobManager:
         Returns:
             Tuple of (success, message)
         """
-        try:
-            # Check if job is running and get engine
-            with self._engines_lock:
-                if job_id not in self.engines:
-                    return False, "Job is not running"
-                engine = self.engines[job_id]
-
-            # Stop engine
-            if engine.stop():
-                # Update job status
-                job = self.storage.get_job(job_id)
-                if job:
-                    # Get final progress from engine
-                    final_progress = engine.get_progress()
-                    job.update_progress(final_progress)
-                    job.update_status(Job.STATUS_PAUSED)
-                    self.storage.update_job(job)
-
-                # Clean up engine from memory
+        with self._lock:
+            try:
+                # Check if job is running and get engine
                 with self._engines_lock:
-                    del self.engines[job_id]
-                    # Clean up progress tracking
-                    if job_id in self.last_progress_save:
-                        del self.last_progress_save[job_id]
+                    if job_id not in self.engines:
+                        return False, "Job is not running"
+                    engine = self.engines[job_id]
 
-                return True, f"Job stopped successfully"
-            else:
-                return False, "Failed to stop backup engine"
+                # Stop engine
+                if engine.stop():
+                    # Update job status
+                    job = self.storage.get_job(job_id)
+                    if job:
+                        # Get final progress from engine
+                        final_progress = engine.get_progress()
+                        job.update_progress(final_progress)
+                        job.update_status(Job.STATUS_PAUSED)
+                        self.storage.update_job(job)
 
-        except Exception as e:
-            return False, f"Error stopping job: {str(e)}"
+                    # Clean up engine from memory
+                    with self._engines_lock:
+                        del self.engines[job_id]
+                        # Clean up progress tracking
+                        if job_id in self.last_progress_save:
+                            del self.last_progress_save[job_id]
+
+                    return True, f"Job stopped successfully"
+                else:
+                    return False, "Failed to stop backup engine"
+
+            except Exception as e:
+                return False, f"Error stopping job: {str(e)}"
 
     def get_job_status(self, job_id: str) -> Optional[Dict]:
         """
@@ -247,61 +251,62 @@ class JobManager:
         Returns:
             Dict with job info and current progress, or None if not found
         """
-        try:
-            job = self.storage.get_job(job_id)
-            if not job:
-                return None
+        with self._lock:
+            try:
+                job = self.storage.get_job(job_id)
+                if not job:
+                    return None
 
-            # If job is running, get live progress from engine
-            with self._engines_lock:
-                if job_id in self.engines:
-                    engine = self.engines[job_id]
-                else:
-                    engine = None
+                # If job is running, get live progress from engine
+                with self._engines_lock:
+                    if job_id in self.engines:
+                        engine = self.engines[job_id]
+                    else:
+                        engine = None
 
-            if engine:
-                if engine.is_running():
-                    live_progress = engine.get_progress()
-                    job.update_progress(live_progress)
+                if engine:
+                    if engine.is_running():
+                        live_progress = engine.get_progress()
+                        job.update_progress(live_progress)
 
-                    # Update storage periodically (throttled to prevent excessive I/O)
-                    if self._should_persist_progress(job_id, live_progress):
+                        # Update storage periodically (throttled to prevent excessive I/O)
+                        if self._should_persist_progress(job_id, live_progress):
+                            self.storage.update_job(job)
+                            current_percent = live_progress.get('percent', 0)
+                            with self._engines_lock:
+                                self.last_progress_save[job_id] = (time.time(), current_percent)
+                    else:
+                        # Engine stopped but still in memory, clean up
+                        final_progress = engine.get_progress()
+                        job.update_progress(final_progress)
+                        if final_progress.get('status') == 'completed':
+                            job.update_status(Job.STATUS_COMPLETED)
+                        elif final_progress.get('status') == 'failed':
+                            job.update_status(Job.STATUS_FAILED)
                         self.storage.update_job(job)
-                        current_percent = live_progress.get('percent', 0)
+
                         with self._engines_lock:
-                            self.last_progress_save[job_id] = (time.time(), current_percent)
-                else:
-                    # Engine stopped but still in memory, clean up
-                    final_progress = engine.get_progress()
-                    job.update_progress(final_progress)
-                    if final_progress.get('status') == 'completed':
-                        job.update_status(Job.STATUS_COMPLETED)
-                    elif final_progress.get('status') == 'failed':
-                        job.update_status(Job.STATUS_FAILED)
-                    self.storage.update_job(job)
+                            del self.engines[job_id]
+                            # Clean up progress tracking
+                            if job_id in self.last_progress_save:
+                                del self.last_progress_save[job_id]
 
-                    with self._engines_lock:
-                        del self.engines[job_id]
-                        # Clean up progress tracking
-                        if job_id in self.last_progress_save:
-                            del self.last_progress_save[job_id]
+                return {
+                    'id': job.id,
+                    'name': job.name,
+                    'source': job.source,
+                    'dest': job.dest,
+                    'type': job.type,
+                    'status': job.status,
+                    'progress': job.progress,
+                    'settings': job.settings,
+                    'created_at': job.created_at,
+                    'updated_at': job.updated_at
+                }
 
-            return {
-                'id': job.id,
-                'name': job.name,
-                'source': job.source,
-                'dest': job.dest,
-                'type': job.type,
-                'status': job.status,
-                'progress': job.progress,
-                'settings': job.settings,
-                'created_at': job.created_at,
-                'updated_at': job.updated_at
-            }
-
-        except Exception as e:
-            print(f"Error getting job status: {e}")
-            return None
+            except Exception as e:
+                print(f"Error getting job status: {e}")
+                return None
 
     def list_jobs(self) -> List[Dict]:
         """
@@ -310,15 +315,16 @@ class JobManager:
         Returns:
             List of job info dictionaries
         """
-        jobs = self.storage.load_jobs()
-        result = []
+        with self._lock:
+            jobs = self.storage.load_jobs()
+            result = []
 
-        for job in jobs:
-            job_info = self.get_job_status(job.id)
-            if job_info:
-                result.append(job_info)
+            for job in jobs:
+                job_info = self.get_job_status(job.id)
+                if job_info:
+                    result.append(job_info)
 
-        return result
+            return result
 
     def delete_job(self, job_id: str) -> Tuple[bool, str]:
         """
@@ -330,22 +336,23 @@ class JobManager:
         Returns:
             Tuple of (success, message)
         """
-        try:
-            # Stop job if running
-            with self._engines_lock:
-                is_running = job_id in self.engines
+        with self._lock:
+            try:
+                # Stop job if running
+                with self._engines_lock:
+                    is_running = job_id in self.engines
 
-            if is_running:
-                self.stop_job(job_id)
+                if is_running:
+                    self.stop_job(job_id)
 
-            # Delete from storage
-            if self.storage.delete_job(job_id):
-                return True, "Job deleted successfully"
-            else:
-                return False, "Job not found"
+                # Delete from storage
+                if self.storage.delete_job(job_id):
+                    return True, "Job deleted successfully"
+                else:
+                    return False, "Job not found"
 
-        except Exception as e:
-            return False, f"Error deleting job: {str(e)}"
+            except Exception as e:
+                return False, f"Error deleting job: {str(e)}"
 
     def _should_persist_progress(self, job_id: str, progress: Dict) -> bool:
         """
@@ -383,24 +390,29 @@ class JobManager:
         are cleaned up periodically in the background rather than on-demand.
         The current implementation cleans engines when get_job_status() is called.
         """
-        stopped_engines = []
+        with self._lock:
+            stopped_engines = []
 
-        for job_id, engine in self.engines.items():
-            if not engine.is_running():
-                stopped_engines.append(job_id)
+            with self._engines_lock:
+                for job_id, engine in self.engines.items():
+                    if not engine.is_running():
+                        stopped_engines.append(job_id)
 
-        for job_id in stopped_engines:
-            engine = self.engines[job_id]
-            final_progress = engine.get_progress()
+            for job_id in stopped_engines:
+                with self._engines_lock:
+                    engine = self.engines[job_id]
 
-            # Update job in storage
-            job = self.storage.get_job(job_id)
-            if job:
-                job.update_progress(final_progress)
-                if final_progress.get('status') == 'completed':
-                    job.update_status(Job.STATUS_COMPLETED)
-                elif final_progress.get('status') == 'failed':
-                    job.update_status(Job.STATUS_FAILED)
-                self.storage.update_job(job)
+                final_progress = engine.get_progress()
 
-            del self.engines[job_id]
+                # Update job in storage
+                job = self.storage.get_job(job_id)
+                if job:
+                    job.update_progress(final_progress)
+                    if final_progress.get('status') == 'completed':
+                        job.update_status(Job.STATUS_COMPLETED)
+                    elif final_progress.get('status') == 'failed':
+                        job.update_status(Job.STATUS_FAILED)
+                    self.storage.update_job(job)
+
+                with self._engines_lock:
+                    del self.engines[job_id]

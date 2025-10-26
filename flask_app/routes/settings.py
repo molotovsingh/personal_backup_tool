@@ -3,7 +3,7 @@ Settings routes
 """
 from flask import Blueprint, render_template, request, flash
 from core.settings import get_settings
-from utils.rclone_helper import is_rclone_installed
+from utils.rclone_helper import is_rclone_installed, get_rclone_version
 import shutil
 import os
 
@@ -18,7 +18,8 @@ def index():
 
     # Check tool installation
     rsync_installed = shutil.which('rsync') is not None
-    rclone_installed, rclone_version = is_rclone_installed()
+    rclone_installed, rclone_path = is_rclone_installed()
+    rclone_version = get_rclone_version()
 
     # Get system paths
     from flask_app.config import Config
@@ -32,7 +33,8 @@ def index():
                           settings=settings,
                           rsync_installed=rsync_installed,
                           rclone_installed=rclone_installed,
-                          rclone_version=rclone_version if rclone_installed else None,
+                          rclone_version=rclone_version,
+                          rclone_path=rclone_path if rclone_installed else None,
                           system_info=system_info)
 
 

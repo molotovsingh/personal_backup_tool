@@ -3,6 +3,7 @@ Rclone configuration helper utilities
 """
 import subprocess
 import shutil
+import re
 from typing import List, Tuple
 
 
@@ -176,3 +177,66 @@ def test_remote(remote_name: str) -> Tuple[bool, str]:
         return False, "Remote test timed out"
     except Exception as e:
         return False, f"Error testing remote: {str(e)}"
+
+
+# Module-level cache for rclone version
+_rclone_version_cache = None
+
+
+def get_rclone_version() -> str:
+    """
+    Get the installed rclone version string.
+
+    Returns version in format "v1.65.0" or "Not installed" if rclone is not found.
+    The result is cached for the lifetime of the application to avoid repeated subprocess calls.
+
+    Returns:
+        Version string (e.g., "v1.65.0") or "Not installed"
+    """
+    global _rclone_version_cache
+
+    # Return cached version if available
+    if _rclone_version_cache is not None:
+        return _rclone_version_cache
+
+    try:
+        # Check if rclone is installed
+        is_installed, _ = is_rclone_installed()
+        if not is_installed:
+            _rclone_version_cache = "Not installed"
+            return _rclone_version_cache
+
+        # Execute rclone version command
+        result = subprocess.run(
+            ['rclone', 'version'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+
+        if result.returncode != 0:
+            _rclone_version_cache = "Error detecting version"
+            return _rclone_version_cache
+
+        # Parse version from first line of output
+        # Format: "rclone v1.65.0"
+        first_line = result.stdout.strip().split('\n')[0]
+        version_match = re.search(r'v\d+\.\d+\.\d+', first_line)
+
+        if version_match:
+            _rclone_version_cache = version_match.group()
+        else:
+            # Fallback: try to extract any version-like string
+            _rclone_version_cache = first_line.split()[-1] if first_line else "Unknown"
+
+        return _rclone_version_cache
+
+    except FileNotFoundError:
+        _rclone_version_cache = "Not installed"
+        return _rclone_version_cache
+    except subprocess.TimeoutExpired:
+        _rclone_version_cache = "Timeout"
+        return _rclone_version_cache
+    except Exception as e:
+        _rclone_version_cache = f"Error: {str(e)}"
+        return _rclone_version_cache

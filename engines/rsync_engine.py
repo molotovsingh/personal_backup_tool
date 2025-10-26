@@ -397,6 +397,22 @@ class RsyncEngine:
                 bytes_str = bytes_match.group(1).replace(',', '')
                 updates['bytes_transferred'] = int(bytes_str)
 
+            # Calculate total_bytes from bytes_transferred and percent
+            # Formula: total_bytes = bytes_transferred / (percent / 100)
+            # Only calculate if we have both bytes and percent, and percent > 0
+            if 'bytes_transferred' in updates and 'percent' in updates:
+                percent = updates['percent']
+                bytes_transferred = updates['bytes_transferred']
+                if percent > 0:
+                    # Calculate total, but only set if not already established
+                    calculated_total = int(bytes_transferred / (percent / 100.0))
+                    # Only update total_bytes if we don't have one yet, or if new calculation seems more accurate
+                    with self._progress_lock:
+                        current_total = self.progress.get('total_bytes', 0)
+                        if current_total == 0 or abs(calculated_total - current_total) > current_total * 0.1:
+                            # Either first calculation, or >10% different (likely more accurate)
+                            updates['total_bytes'] = calculated_total
+
             # Look for speed (e.g., "2.34MB/s" or "123.45kB/s")
             speed_match = re.search(r'([\d.]+)(MB|KB|GB)/s', line, re.IGNORECASE)
             if speed_match:
