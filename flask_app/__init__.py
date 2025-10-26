@@ -5,6 +5,7 @@ from flask import Flask, render_template, request
 from flask_session import Session
 from flask_socketio import SocketIO
 import os
+from pathlib import Path
 
 # Initialize SocketIO (will be configured in create_app)
 socketio = SocketIO()
@@ -17,6 +18,10 @@ def create_app(config_name='development'):
     # Load configuration
     from flask_app.config import config
     app.config.from_object(config[config_name])
+
+    # Ensure required directories exist
+    session_dir = Path(app.config['SESSION_FILE_DIR'])
+    session_dir.mkdir(parents=True, exist_ok=True)
 
     # Initialize extensions
     Session(app)

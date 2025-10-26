@@ -5,6 +5,7 @@ import yaml
 from pathlib import Path
 from typing import List, Optional
 from models.job import Job
+from core.paths import get_jobs_file
 
 
 class JobStorage:
@@ -15,12 +16,12 @@ class JobStorage:
         Initialize JobStorage
 
         Args:
-            storage_path: Path to YAML file (defaults to ~/backup-manager/jobs.yaml)
+            storage_path: Path to YAML file (defaults to configured data directory)
         """
         if storage_path:
             self.storage_path = Path(storage_path)
         else:
-            self.storage_path = Path.home() / 'backup-manager' / 'jobs.yaml'
+            self.storage_path = get_jobs_file()
 
         # Ensure directory exists
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)

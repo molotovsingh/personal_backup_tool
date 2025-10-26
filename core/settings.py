@@ -4,6 +4,7 @@ Settings manager for Backup Manager application
 import yaml
 from pathlib import Path
 from typing import Any, Dict
+from core.paths import get_settings_file
 
 
 class Settings:
@@ -23,12 +24,12 @@ class Settings:
         Initialize Settings
 
         Args:
-            settings_path: Path to settings file (defaults to ~/backup-manager/settings.yaml)
+            settings_path: Path to settings file (defaults to configured data directory)
         """
         if settings_path:
             self.settings_path = Path(settings_path)
         else:
-            self.settings_path = Path.home() / 'backup-manager' / 'settings.yaml'
+            self.settings_path = get_settings_file()
 
         # Ensure directory exists
         self.settings_path.parent.mkdir(parents=True, exist_ok=True)

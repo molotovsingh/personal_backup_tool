@@ -3,8 +3,9 @@ Flask application configuration
 """
 import os
 from pathlib import Path
+from core.paths import get_data_dir, get_jobs_file, get_settings_file, get_logs_dir
 
-# Base directory
+# Base directory (for Flask-specific assets only)
 BASE_DIR = Path(__file__).parent.parent
 
 
@@ -22,10 +23,11 @@ class Config:
     # SocketIO settings
     SOCKETIO_MESSAGE_QUEUE = None
 
-    # Application settings
-    JOBS_FILE = os.path.join(BASE_DIR, 'jobs.yaml')
-    SETTINGS_FILE = os.path.join(BASE_DIR, 'settings.yaml')
-    LOGS_DIR = os.path.join(BASE_DIR, 'logs')
+    # Application settings (using centralized path management)
+    JOBS_FILE = str(get_jobs_file())
+    SETTINGS_FILE = str(get_settings_file())
+    LOGS_DIR = str(get_logs_dir())
+    DATA_DIR = str(get_data_dir())
 
     # Auto-refresh settings
     DEFAULT_REFRESH_INTERVAL = 2  # seconds
