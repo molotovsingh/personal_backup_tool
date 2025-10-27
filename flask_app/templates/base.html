@@ -9,6 +9,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10" crossorigin="anonymous"></script>
     <script src="https://cdn.socket.io/4.6.0/socket.io.min.js" crossorigin="anonymous"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <!-- CSRF token for HTMX requests -->
     <script>
         document.addEventListener('htmx:configRequest', (event) => {
@@ -54,13 +55,16 @@
                 <div class="space-y-2">
                     <form action="/recover-jobs" method="POST">
                         <button type="submit"
-                                class="w-full bg-green-600 text-white px-3 py-2 rounded text-sm hover:bg-green-700 transition">
+                                class="w-full bg-green-600 text-white px-3 py-2 rounded text-sm hover:bg-green-700 transition"
+                                onclick="this.disabled=true; this.form.submit();">
                             ✅ Recover (mark as paused)
                         </button>
+                        <p class="mt-1 text-xs text-green-200">Ensures safe state; resume later from Jobs.</p>
                     </form>
                     <form action="/dismiss-recovery" method="POST">
                         <button type="submit"
-                                class="w-full bg-gray-700 text-gray-200 px-3 py-2 rounded text-sm hover:bg-gray-600 transition">
+                                class="w-full bg-gray-700 text-gray-200 px-3 py-2 rounded text-sm hover:bg-gray-600 transition"
+                                onclick="this.disabled=true; this.form.submit();">
                             Dismiss
                         </button>
                     </form>
