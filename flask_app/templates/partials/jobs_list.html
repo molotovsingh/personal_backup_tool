@@ -55,11 +55,12 @@
             </div>
 
             <!-- Quick Actions (Always Visible) -->
-            <div class="flex gap-2 flex-shrink-0" @click.stop>
+            <div class="flex gap-2 flex-shrink-0">
                 {% if job.status in ['pending', 'paused', 'failed'] %}
                 <button hx-post="/jobs/{{ job.id }}/start"
                         hx-target="#jobs-content"
                         hx-swap="outerHTML"
+                        hx-on::click="event.stopPropagation()"
                         class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition text-xs font-medium">
                     ▶
                 </button>
@@ -67,6 +68,7 @@
                 <button hx-post="/jobs/{{ job.id }}/pause"
                         hx-target="#jobs-content"
                         hx-swap="outerHTML"
+                        hx-on::click="event.stopPropagation()"
                         class="bg-yellow-600 text-white px-3 py-1 rounded hover:bg-yellow-700 transition text-xs font-medium">
                     ⏸
                 </button>
@@ -77,6 +79,7 @@
                         hx-target="#jobs-content"
                         hx-swap="outerHTML"
                         hx-confirm="Delete '{{ job.name }}'? This cannot be undone."
+                        hx-on::click="event.stopPropagation()"
                         class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition text-xs font-medium">
                     🗑
                 </button>
@@ -120,7 +123,13 @@
                     <span class="transfer-info">
                         {{ (job.progress.bytes_transferred / 1024 / 1024) | round(2) }} MB / {{ (job.progress.total_bytes / 1024 / 1024) | round(2) }} MB
                     </span>
-                    <span class="font-semibold">{{ job.progress.percent }}%</span>
+                    <span class="font-semibold">
+                        {% if job.progress.percent == 0 and job.progress.total_bytes == 0 %}
+                            🔍 Preparing transfer...
+                        {% else %}
+                            {{ job.progress.percent }}%
+                        {% endif %}
+                    </span>
                 </div>
                 <div class="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
                     <div class="progress-bar bg-blue-600 h-4 rounded-full transition-all duration-500 flex items-center justify-center text-xs text-white font-semibold"
