@@ -11,8 +11,13 @@ logs_bp = Blueprint('logs', __name__)
 
 
 def read_log_file(log_path, max_lines=500):
-    """Read last N lines from a log file"""
+    """Read last N lines from a log file efficiently"""
     try:
+        # Check file size - skip very large files (>5MB) when reading all logs
+        file_size = os.path.getsize(log_path)
+        if file_size > 5 * 1024 * 1024:  # 5MB
+            return [f"[Log file too large ({file_size / 1024 / 1024:.1f}MB) - showing only last {max_lines} lines]"]
+
         with open(log_path, 'r') as f:
             lines = f.readlines()
             return lines[-max_lines:] if len(lines) > max_lines else lines
