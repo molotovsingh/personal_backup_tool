@@ -117,27 +117,29 @@ def validate_deletion_safety(
 
     Args:
         source_path: Source directory path
-        dest_path: Destination directory path
-        require_space_check: If True, require space check to pass
+        dest_path: Destination directory path (can be local or cloud remote)
+        require_space_check: If True, require space check to pass (skipped for cloud)
 
     Returns:
         Tuple of (is_safe, message)
     """
     try:
         source = Path(source_path)
-        dest = Path(dest_path)
 
         # Check 1: Source must exist
         if not source.exists():
             return False, f"Source path does not exist: {source_path}"
 
         # Check 2: Source and dest must not be the same
-        try:
-            if source.resolve() == dest.resolve():
-                return False, "Source and destination are the same - cannot delete!"
-        except Exception:
-            # Resolution might fail for cloud paths, skip this check
-            pass
+        # (Only check for local paths - cloud paths can't be resolved)
+        if not is_cloud_path(dest_path):
+            try:
+                dest = Path(dest_path)
+                if source.resolve() == dest.resolve():
+                    return False, "Source and destination are the same - cannot delete!"
+            except Exception:
+                # Resolution might fail, skip this check
+                pass
 
         # Check 3: Estimate source size
         source_bytes = estimate_source_size(source_path)
@@ -146,13 +148,20 @@ def validate_deletion_safety(
 
         source_gb = source_bytes / (1024**3)
 
-        # Check 4: Destination space (if required)
-        if require_space_check:
+        # Check 4: Destination space (if required AND destination is local)
+        if require_space_check and not is_cloud_path(dest_path):
             space_ok, space_msg = check_destination_space(dest_path, source_bytes)
             if not space_ok:
                 return False, space_msg
+        elif is_cloud_path(dest_path):
+            # Cloud destination - skip space check with warning
+            return (
+                True,
+                f"✅ Safety checks passed (source: {source_gb:.2f} GB) - "
+                f"⚠️ Cloud destination '{dest_path}' - ensure remote has enough space"
+            )
 
-        # All checks passed
+        # All checks passed (local destination)
         return (
             True,
             f"✅ Safety checks passed (source: {source_gb:.2f} GB)"
