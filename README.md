@@ -54,13 +54,12 @@ rclone config
 ### 1. Launch the App
 
 ```bash
-# Development mode (with debug logging)
-uv run python flask_app.py
+# Development mode (with debug logging and auto-reload)
+uv run uvicorn fastapi_app:app --host 0.0.0.0 --port 5001 --reload
 
 # Production mode (requires SECRET_KEY environment variable)
 export SECRET_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')
-export FLASK_ENV=production
-uv run python flask_app.py
+uv run uvicorn fastapi_app:app --host 0.0.0.0 --port 5001
 ```
 
 The app will be available at http://localhost:5001
@@ -99,18 +98,18 @@ This will guide you through setting up:
 
 ```
 backup-manager/
-├── flask_app.py             # Flask application entry point
-├── flask_app/               # Flask web application
-│   ├── __init__.py          # App factory with security configuration
-│   ├── config.py            # Flask configuration (dev/prod)
-│   ├── socketio_handlers.py # WebSocket event handlers
-│   ├── routes/              # Route blueprints
+├── fastapi_app/             # FastAPI web application
+│   ├── __init__.py          # App initialization with middleware
+│   ├── routers/             # API routers
 │   │   ├── dashboard.py     # Dashboard endpoints
 │   │   ├── jobs.py          # Job management endpoints
 │   │   ├── settings.py      # Settings endpoints
 │   │   └── logs.py          # Logs endpoints
-│   └── templates/           # Jinja2 HTML templates
-│       ├── base.html        # Base template with CSRF protection
+│   ├── websocket/           # WebSocket support
+│   │   └── manager.py       # Connection manager
+│   ├── background.py        # Background tasks
+│   └── templates/           # Jinja2 HTML templates (from flask_app/)
+│       ├── base.html        # Base template
 │       ├── dashboard.html   # Dashboard page
 │       ├── jobs.html        # Jobs management page
 │       ├── settings.html    # Settings page
@@ -215,7 +214,7 @@ For production deployments, the following security features are enabled:
    export SECRET_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')
    ```
 
-2. **CSRF Protection**: Enabled by default via Flask-WTF
+2. **CSRF Protection**: Enabled via FastAPI middleware
    - All mutating operations require CSRF tokens
    - HTMX requests automatically include CSRF headers
 
@@ -242,7 +241,7 @@ The application automatically adjusts security settings based on the environment
 | CSRF Protection | Enabled | Enabled |
 | CORS | localhost only | Configurable |
 | Session Cookies | HTTP | HTTPS only |
-| SocketIO Logging | Enabled | Disabled |
+| WebSocket Logging | Enabled | Disabled |
 
 ## Configuration Files
 
@@ -274,14 +273,14 @@ auto_refresh_interval: 2
 
 ### Development Setup
 
-The Flask application uses hot-reloading in development mode:
+The FastAPI application uses Uvicorn's hot-reloading in development mode:
 
 ```bash
 # Run in development mode (debug enabled, auto-reload)
-uv run python flask_app.py
+uv run uvicorn fastapi_app:app --host 0.0.0.0 --port 5001 --reload
 ```
 
-Flask's built-in debugger will automatically reload on code changes.
+Uvicorn will automatically reload on code changes.
 
 ### Running Tests
 
@@ -300,8 +299,8 @@ uv run pytest tests/test_job_manager.py
 1. Follow the existing architecture
 2. Add models in `models/`
 3. Add business logic in `core/`
-4. Add routes in `flask_app/routes/`
-5. Update templates in `flask_app/templates/`
+4. Add routes in `fastapi_app/routers/`
+5. Update templates in `fastapi_app/templates/`
 6. Test thoroughly with pytest and manual testing
 
 ## License
@@ -311,8 +310,8 @@ MIT
 ## Credits
 
 Built with:
-- [Flask](https://flask.palletsprojects.com/) - Web framework
-- [Flask-SocketIO](https://flask-socketio.readthedocs.io/) - WebSocket support for real-time updates
+- [FastAPI](https://fastapi.tiangolo.com/) - Modern async web framework
+- [Uvicorn](https://www.uvicorn.org/) - Lightning-fast ASGI server
 - [HTMX](https://htmx.org/) - Dynamic HTML without JavaScript complexity
 - [Tailwind CSS](https://tailwindcss.com/) - Utility-first CSS framework
 - [rsync](https://rsync.samba.org/) - Local/network sync
@@ -322,4 +321,4 @@ Built with:
 ---
 
 **Version**: 2.0.0
-**Last Updated**: 2025-10-26
+**Last Updated**: 2025-10-27

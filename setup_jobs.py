@@ -166,5 +166,5 @@ for job in final_jobs:
     print(f"  - {job['name']} ({job['type']}): {job['status']}")
 
 print("\nTo manage jobs, run:")
-print("  uv run python flask_app.py")
-print("\nThen navigate to the Jobs page to start your backups!")
+print("  uv run uvicorn fastapi_app:app --host 0.0.0.0 --port 5001 --reload")
+print("\nThen navigate to http://localhost:5001/jobs to start your backups!")
