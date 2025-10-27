@@ -12,6 +12,8 @@ from flask_app import socketio
 # Background thread for polling job updates
 background_thread = None
 thread_stop_event = threading.Event()
+# Track jobs we've sent final updates for (to avoid re-sending completed state)
+jobs_sent_final_update = set()
 
 
 @socketio.on('connect')
@@ -61,13 +63,16 @@ def job_update_background_thread():
             manager = JobManager()
             jobs = manager.list_jobs()
 
-            # Emit updates for running jobs
+            # Emit updates for running jobs AND final updates for just-completed jobs
             for job in jobs:
-                if job['status'] == 'running':
-                    # Emit job update event (matching JavaScript listener)
+                job_id = job['id']
+                job_status = job['status']
+
+                if job_status == 'running':
+                    # Running job - send continuous updates
                     socketio.emit('job_update', {
-                        'job_id': job['id'],
-                        'status': job['status'],
+                        'job_id': job_id,
+                        'status': job_status,
                         'percent': job['progress'].get('percent', 0),
                         'bytes_transferred': job['progress'].get('bytes_transferred', 0),
                         'total_bytes': job['progress'].get('total_bytes', 0),
@@ -75,6 +80,26 @@ def job_update_background_thread():
                         'eta_seconds': job['progress'].get('eta_seconds', 0),
                         'deletion': job['progress'].get('deletion', {})
                     })
+
+                    # Remove from final-update tracking if it was there (job restarted)
+                    jobs_sent_final_update.discard(job_id)
+
+                elif job_status in ['completed', 'failed'] and job_id not in jobs_sent_final_update:
+                    # Job just finished - send ONE final update with final state
+                    print(f'Sending final update for job {job_id} (status: {job_status})')
+                    socketio.emit('job_update', {
+                        'job_id': job_id,
+                        'status': job_status,
+                        'percent': job['progress'].get('percent', 0),
+                        'bytes_transferred': job['progress'].get('bytes_transferred', 0),
+                        'total_bytes': job['progress'].get('total_bytes', 0),
+                        'speed_bytes': job['progress'].get('speed_bytes', 0),
+                        'eta_seconds': job['progress'].get('eta_seconds', 0),
+                        'deletion': job['progress'].get('deletion', {})
+                    })
+
+                    # Mark as sent so we don't keep sending updates for this completed job
+                    jobs_sent_final_update.add(job_id)
 
         except Exception as e:
             print(f'Error in job update thread: {e}')
@@ -95,6 +120,16 @@ def cleanup_background_thread():
         time.sleep(1.5)
         background_thread = None
         print('Background thread stopped')
+
+
+def clear_job_from_tracking(job_id: str):
+    """
+    Clear a job from the final-update tracking set (call when job is deleted)
+
+    Args:
+        job_id: ID of job to remove from tracking
+    """
+    jobs_sent_final_update.discard(job_id)
 
 
 # Register cleanup function to run on app shutdown

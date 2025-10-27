@@ -125,6 +125,9 @@ def delete_job(job_id):
         success, message = delete_job_operation(job_id)
 
         if success:
+            # Clean up WebSocket tracking for this job
+            from flask_app.socketio_handlers import clear_job_from_tracking
+            clear_job_from_tracking(job_id)
             flash(message, 'success')
         else:
             flash(message, 'error')
