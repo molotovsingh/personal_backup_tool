@@ -3,7 +3,7 @@
 ## Summary
 Extract and display the actual rclone version string instead of showing the rclone binary path in the settings page.
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Settings page SHALL display rclone version string
 The system SHALL execute `rclone version` and extract the version number for display in settings page system information.
@@ -59,8 +59,6 @@ rclone_version = get_rclone_version()
 # Then: Returns error indication
 assert rclone_version in ["Not installed", "Error detecting version"]
 ```
-
-## ADDED Requirements
 
 ### Requirement: Version check SHALL cache result to avoid repeated calls
 The system SHALL cache the rclone version result for the duration of the application runtime to avoid executing `rclone --version` on every settings page load.

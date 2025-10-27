@@ -16,3 +16,23 @@ Use `@/openspec/AGENTS.md` to learn:
 Keep this managed block so 'openspec update' can refresh the instructions.
 
 <!-- OPENSPEC:END -->
+
+## Repo Agent Policy: Advice-Only Mode (Default)
+
+This repository enforces advice-only operation for AI coding assistants. The scope of this file is the entire repository.
+
+Rules (must-follow):
+
+- Do not modify files unless the user explicitly authorizes changes in this conversation (e.g., "you can modify X" or an approved OpenSpec proposal/tasks.md). Otherwise, provide advice, diffs, or patch plans only.
+- Do not call write-capable tools (e.g., `apply_patch`) or run commands that write to disk by default. Use read-only shell actions (e.g., `ls`, `rg`, `cat`).
+- Request explicit approval before any action that can write files, alter the environment, install packages, or access the network.
+- Do not create commits, branches, or push changes unless the user asks.
+- Prefer proposing minimal, surgical patches with clear file paths and rationale. Apply only after authorization.
+- For feature work, architecture, or breaking changes, follow `@/openspec/AGENTS.md` and require an approved change proposal before implementation.
+
+Operational guidance:
+
+- When a write is requested, limit changes strictly to the files and scope specified by the user, and summarize the impact.
+- If tests or tools may write to temp or cache directories, ask for approval first and note any side effects.
+- Keep network access restricted unless specifically requested.
+- Surface any ambiguities with a brief clarifying question before proposing patches.

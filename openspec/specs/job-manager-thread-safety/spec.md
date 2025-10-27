@@ -1,10 +1,8 @@
-# Spec: Job Manager Thread Safety
+# job-manager-thread-safety Specification
 
-## Summary
-Add proper threading locks for job list iteration in JobManager to prevent race conditions during concurrent access from Flask request threads and WebSocket update threads.
-
-## MODIFIED Requirements
-
+## Purpose
+TBD - created by archiving change harden-production-quality. Update Purpose after archive.
+## Requirements
 ### Requirement: Job list operations SHALL use thread-safe locking
 The system SHALL protect all job list read and write operations with threading.Lock to prevent concurrent modification issues.
 
@@ -115,8 +113,6 @@ saved_job = manager.get_job(job_id)
 assert saved_job['progress']['percent'] == job['progress']['percent']
 ```
 
-## ADDED Requirements
-
 ### Requirement: Locking SHALL not cause deadlocks
 The system SHALL use a single, consistently ordered lock to prevent deadlock scenarios.
 
@@ -178,3 +174,4 @@ assert result in ["succeeded", "timeout"]
 lock_released.set()
 holder.join()
 ```
+

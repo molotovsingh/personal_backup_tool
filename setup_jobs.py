@@ -166,5 +166,5 @@ for job in final_jobs:
     print(f"  - {job['name']} ({job['type']}): {job['status']}")
 
 print("\nTo manage jobs, run:")
-print("  uv run streamlit run app.py")
+print("  uv run python flask_app.py")
 print("\nThen navigate to the Jobs page to start your backups!")

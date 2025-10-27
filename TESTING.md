@@ -23,7 +23,7 @@
    echo "Test file 2" > ~/test_backup/source/file2.txt
    ```
 
-2. Run the app: `uv run streamlit run app.py`
+2. Run the app: `uv run python flask_app.py`
 
 3. Navigate to **Jobs** page
 
@@ -130,7 +130,7 @@
 
 2. Kill the app (Ctrl+C or close browser)
 
-3. Restart the app: `uv run streamlit run app.py`
+3. Restart the app: `uv run python flask_app.py`
 
 **Expected Results**:
 - [ ] Sidebar shows warning: "⚠️ 1 interrupted job(s) found"

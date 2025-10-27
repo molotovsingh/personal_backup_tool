@@ -3,7 +3,7 @@
 ## Summary
 Fix rsync progress parser to extract and display total bytes, showing accurate "X MB / Y MB" progress instead of "X MB / 0 MB".
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Rsync progress SHALL display total bytes transferred and total size
 The system SHALL parse rsync output to extract both bytes_transferred and total_bytes, displaying progress as "X MB / Y MB (Z%)".
@@ -54,8 +54,6 @@ for update in range(4):
     job = manager.get_job('test_job')
     assert job['progress']['total_bytes'] == initial_total
 ```
-
-## ADDED Requirements
 
 ### Requirement: Parser SHALL handle rsync output variations
 The system SHALL correctly parse progress from both verbose (-v) and info (--info=progress2) rsync output formats.

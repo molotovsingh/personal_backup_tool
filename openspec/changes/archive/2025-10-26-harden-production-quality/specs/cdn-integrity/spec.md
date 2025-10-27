@@ -3,7 +3,7 @@
 ## Summary
 Add Subresource Integrity (SRI) hashes and pinned versions to CDN-loaded assets (Tailwind CSS, HTMX, Socket.IO) to prevent tampering and ensure reproducible builds.
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: CDN assets SHALL use pinned versions and SRI hashes
 The system SHALL load all CDN assets with specific version pins and Subresource Integrity hashes to detect tampering.
