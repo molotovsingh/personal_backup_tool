@@ -63,8 +63,10 @@ class RcloneEngine:
             }
         }
         self._progress_lock = threading.Lock()  # Protect progress dict access
-        self.log_file = Path.home() / 'backup-manager' / 'logs' / f'rclone_{job_id}.log'
-        self.log_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Use unified data directory for logs
+        from core.paths import get_logs_dir
+        self.log_file = get_logs_dir() / f'rclone_{job_id}.log'
 
     def start(self):
         """Start the rclone process"""
@@ -258,6 +260,23 @@ class RcloneEngine:
                             # Can't easily count files deleted by rclone move
                             self.deletion_logger.log_deletion_complete(0, 0, errors=0)
 
+                    # Handle verify_after mode (independent of deletion)
+                    # Only run if NOT already verified in verify_then_delete mode
+                    if self.verification_mode == 'verify_after' and not (self.delete_source_after and self.deletion_mode == 'verify_then_delete'):
+                        self.log("Running post-transfer verification (verify_after mode)...")
+                        with self._progress_lock:
+                            self.progress['verification']['passed'] = None  # Pending
+
+                        verification_passed = self._verify_backup()
+
+                        with self._progress_lock:
+                            self.progress['verification']['passed'] = verification_passed
+
+                        if verification_passed:
+                            self.log("✅ Post-transfer verification passed")
+                        else:
+                            self.log("❌ Post-transfer verification failed")
+
                     # Update completion status atomically (CRITICAL FIX)
                     with self._progress_lock:
                         self.progress['status'] = 'completed'
@@ -327,15 +346,26 @@ class RcloneEngine:
     def _restart_process(self):
         """Restart the rclone process (for retry with resume)"""
         try:
+            # Determine operation type based on deletion settings (matching start() logic)
+            if self.delete_source_after and self.deletion_mode == 'per_file':
+                operation = 'move'
+                self.log("Retry using rclone move for per-file deletion")
+            else:
+                operation = 'copy'
+
             # Build rclone command with resume support (same as start())
             cmd = [
-                'rclone', 'copy',
+                'rclone', operation,
                 '--progress',
                 '--stats', '1s',
                 '--stats-one-line',
                 '--retries', '1',  # Our wrapper handles retries
                 '--low-level-retries', '3',
             ]
+
+            # Add --delete-empty-src-dirs for move operations
+            if operation == 'move':
+                cmd.append('--delete-empty-src-dirs')
 
             # Add checksum verification based on verification mode
             if self.verification_mode == 'checksum':
@@ -537,6 +567,28 @@ class RcloneEngine:
 
                 if result.returncode == 0:
                     self.log("✅ Remote files deleted successfully")
+
+                    # Remove empty directories from remote
+                    self.log("Removing empty directories from remote...")
+                    rmdirs_cmd = ['rclone', 'rmdirs', self.source]
+                    try:
+                        rmdirs_result = subprocess.run(
+                            rmdirs_cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=60  # 1 minute timeout for rmdirs
+                        )
+
+                        if rmdirs_result.returncode == 0:
+                            self.log("✅ Empty directories removed")
+                        else:
+                            # Don't fail the job if rmdirs fails
+                            self.log(f"⚠️ Could not remove empty directories: {rmdirs_result.stderr}")
+                    except subprocess.TimeoutExpired:
+                        self.log("⚠️ Timeout removing empty directories (non-fatal)")
+                    except Exception as e:
+                        self.log(f"⚠️ Error removing empty directories: {e} (non-fatal)")
+
                     if self.deletion_logger:
                         # Can't easily count remote files
                         self.deletion_logger.log_deletion_complete(0, 0, errors=0)

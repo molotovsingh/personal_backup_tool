@@ -162,6 +162,12 @@ class JobManager:
                         deletion_logger=deletion_logger
                     )
                 elif job.type == Job.TYPE_RCLONE:
+                    # Preflight check: verify rclone is installed
+                    from utils.rclone_helper import is_rclone_installed
+                    is_installed, _ = is_rclone_installed()
+                    if not is_installed:
+                        raise ValueError("rclone not found. Install from https://rclone.org")
+
                     # Import here to avoid circular dependency if rclone engine imports Job
                     try:
                         from engines.rclone_engine import RcloneEngine
