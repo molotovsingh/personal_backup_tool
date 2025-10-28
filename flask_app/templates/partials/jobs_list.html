@@ -60,7 +60,7 @@
                 <button hx-post="/jobs/{{ job.id }}/start"
                         hx-target="#jobs-content"
                         hx-swap="outerHTML"
-                        hx-on::click="event.stopPropagation()"
+                        @click.stop
                         class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition text-xs font-medium">
                     ▶
                 </button>
@@ -68,7 +68,7 @@
                 <button hx-post="/jobs/{{ job.id }}/pause"
                         hx-target="#jobs-content"
                         hx-swap="outerHTML"
-                        hx-on::click="event.stopPropagation()"
+                        @click.stop
                         class="bg-yellow-600 text-white px-3 py-1 rounded hover:bg-yellow-700 transition text-xs font-medium">
                     ⏸
                 </button>
@@ -79,7 +79,7 @@
                         hx-target="#jobs-content"
                         hx-swap="outerHTML"
                         hx-confirm="Delete '{{ job.name }}'? This cannot be undone."
-                        hx-on::click="event.stopPropagation()"
+                        @click.stop
                         class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition text-xs font-medium">
                     🗑
                 </button>
