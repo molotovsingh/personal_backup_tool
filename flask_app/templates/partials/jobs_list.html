@@ -15,12 +15,11 @@
                  localStorage.setItem('job_{{ job.id }}_expanded', this.expanded);
              }
          }"
-         class="bg-white rounded-lg shadow hover:shadow-lg transition cursor-pointer"
-         @click="if (!$event.target.closest('button')) toggle()">
+         class="bg-white rounded-lg shadow hover:shadow-lg transition cursor-pointer">
 
         <!-- Collapsed View (Always Visible) -->
         <div class="p-4 flex items-center justify-between gap-3">
-            <div class="flex items-center gap-3 flex-1 min-w-0">
+            <div class="flex items-center gap-3 flex-1 min-w-0" @click="toggle()">
                 <!-- Expand/Collapse Button -->
                 <button type="button" class="text-gray-400 hover:text-gray-600 flex-shrink-0">
                     <span x-show="!expanded">▶</span>
@@ -93,7 +92,7 @@
              x-transition:leave-start="opacity-100 translate-y-0"
              x-transition:leave-end="opacity-0 -translate-y-2"
              class="px-4 pb-4 border-t border-gray-100"
-             @click.stop>
+             @click="toggle()">
 
             <!-- Job Details -->
             <div class="mt-3 space-y-2 text-sm">
