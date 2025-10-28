@@ -13,7 +13,8 @@
     <!-- CSRF token for HTMX requests -->
     <script>
         document.addEventListener('htmx:configRequest', (event) => {
-            event.detail.headers['X-CSRFToken'] = '{{ csrf_token() }}';
+            const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+            event.detail.headers['X-CSRFToken'] = csrfToken;
         });
     </script>
 </head>
