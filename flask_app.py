@@ -18,9 +18,10 @@ app = create_app(config_name)
 
 if __name__ == '__main__':
     # Run with SocketIO
+    port = int(os.environ.get('PORT', 5002))  # Default to 5002 for testing
     socketio.run(app,
                  host='0.0.0.0',
-                 port=5001,  # Using 5001 as 5000 is used by AirPlay on macOS
+                 port=port,
                  debug=True,
                  use_reloader=True,
                  allow_unsafe_werkzeug=True)  # For development only

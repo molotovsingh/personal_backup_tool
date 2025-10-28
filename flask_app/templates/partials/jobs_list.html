@@ -16,13 +16,13 @@
              }
          }"
          class="bg-white rounded-lg shadow hover:shadow-lg transition cursor-pointer"
-         @click="toggle()">
+         @click="if (!$event.target.closest('button')) toggle()">
 
         <!-- Collapsed View (Always Visible) -->
         <div class="p-4 flex items-center justify-between gap-3">
             <div class="flex items-center gap-3 flex-1 min-w-0">
                 <!-- Expand/Collapse Button -->
-                <button type="button" class="text-gray-400 hover:text-gray-600 flex-shrink-0" @click.stop="toggle()">
+                <button type="button" class="text-gray-400 hover:text-gray-600 flex-shrink-0">
                     <span x-show="!expanded">▶</span>
                     <span x-show="expanded">▼</span>
                 </button>
@@ -60,7 +60,6 @@
                 <button hx-post="/jobs/{{ job.id }}/start"
                         hx-target="#jobs-content"
                         hx-swap="outerHTML"
-                        @click.stop
                         class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition text-xs font-medium">
                     ▶
                 </button>
@@ -68,7 +67,6 @@
                 <button hx-post="/jobs/{{ job.id }}/pause"
                         hx-target="#jobs-content"
                         hx-swap="outerHTML"
-                        @click.stop
                         class="bg-yellow-600 text-white px-3 py-1 rounded hover:bg-yellow-700 transition text-xs font-medium">
                     ⏸
                 </button>
@@ -79,7 +77,6 @@
                         hx-target="#jobs-content"
                         hx-swap="outerHTML"
                         hx-confirm="Delete '{{ job.name }}'? This cannot be undone."
-                        @click.stop
                         class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 transition text-xs font-medium">
                     🗑
                 </button>
