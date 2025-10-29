@@ -23,7 +23,7 @@
    echo "Test file 2" > ~/test_backup/source/file2.txt
    ```
 
-2. Run the app: `uv run python flask_app.py`
+2. Run the app: `uv run uvicorn fastapi_app:app --host 0.0.0.0 --port 5001 --reload`
 
 3. Navigate to **Jobs** page
 
@@ -130,7 +130,7 @@
 
 2. Kill the app (Ctrl+C or close browser)
 
-3. Restart the app: `uv run python flask_app.py`
+3. Restart the app: `uv run uvicorn fastapi_app:app --host 0.0.0.0 --port 5001 --reload`
 
 **Expected Results**:
 - [ ] Sidebar shows warning: "⚠️ 1 interrupted job(s) found"
@@ -300,11 +300,160 @@ rm -rf ~/backup-manager
 
 ---
 
+## Critical Bug Fixes (2025-10-29)
+
+This section documents critical stability and reliability fixes implemented to address race conditions, memory leaks, file corruption, and WebSocket issues.
+
+### Phase 1: Race Condition Fixes
+
+**Issue**: `get_job_status()` was both reading AND modifying job state, causing concurrent modification issues.
+
+**Fix Applied** (core/job_manager.py):
+- Separated read and write operations using Command-Query Separation principle
+- `get_job_status()` is now strictly read-only (lines 250-296)
+- New `update_job_from_engine()` handles all state modifications (lines 298-364)
+- Proper lock ordering: main lock → engines lock
+
+**Test Verification**:
+1. Start multiple jobs simultaneously
+2. Monitor logs for "Error getting job status" messages
+3. Expected: No race condition errors, clean state transitions
+
+### Phase 2: Memory Leak Fixes
+
+**Issue**: Stopped engines remained in memory indefinitely, causing memory leaks over time.
+
+**Fix Applied** (core/job_manager.py + fastapi_app/background.py):
+- Added `cleanup_stopped_engines()` method (lines 366-397)
+- Integrated into background monitoring task
+- Runs every 10 seconds to clean up stopped engines
+- Proper lifecycle logging
+
+**Test Verification**:
+1. Start and complete several jobs
+2. Check server logs for "Cleaned up X stopped engine(s)"
+3. Monitor memory usage over time
+4. Expected: Memory remains stable, engines are cleaned up
+
+### Phase 3: File Corruption Prevention
+
+**Issue**: Concurrent YAML writes could corrupt jobs.yaml file.
+
+**Fix Applied** (storage/job_storage.py):
+- Added fcntl.flock() exclusive locking (lines 207-231)
+- Backup creation before writes (.bak file)
+- Atomic write pattern (temp file + rename)
+- Proper lock release in finally block
+
+**Test Verification**:
+1. Create/update multiple jobs rapidly from different browser tabs
+2. Check jobs.yaml integrity: `cat ~/backup-manager/jobs.yaml`
+3. Check for backup file: `ls -l ~/backup-manager/jobs.yaml.bak`
+4. Expected: No corruption, valid YAML structure maintained
+
+### Phase 4: WebSocket Reliability
+
+**Issue**: Page reloaded on WebSocket disconnect, poor user experience, no reconnection logic.
+
+**Fix Applied** (fastapi_app/templates/jobs.html + dashboard.html):
+- Exponential backoff reconnection (1s → 2s → 4s → 8s... up to 30s)
+- Maximum retry limit (10 attempts)
+- Connection status indicator (top-right corner)
+- Fallback to HTMX polling after max retries (jobs page only)
+- HTMX refresh instead of full page reload on job completion
+- Jitter added to prevent thundering herd
+
+**Test Verification**:
+1. Start the app and navigate to Jobs page
+2. Observe connection status indicator (green "● Connected", fades after 3s)
+3. Stop the backend server
+4. Expected: Yellow "● Reconnecting... (attempt X/10)" appears
+5. Wait through several retry attempts
+6. Restart server
+7. Expected: Reconnects automatically, green indicator shows briefly
+8. Alternative: Let it reach max retries (10)
+9. Expected (jobs page): Blue "● Using fallback polling" - page updates every 5s
+10. Expected (dashboard): Red "● Disconnected - Refresh to reconnect"
+
+**WebSocket Reconnection Behavior**:
+- Attempt 1: ~1s delay
+- Attempt 2: ~2s delay
+- Attempt 3: ~4s delay
+- Attempt 4: ~8s delay
+- Attempt 5: ~16s delay
+- Attempts 6-10: 30s delay (capped)
+- After 10 failed attempts (jobs page): Enable polling fallback
+- After 10 failed attempts (dashboard): Manual refresh required
+
+### Additional Improvements
+
+**Background Monitoring** (fastapi_app/background.py):
+- Periodic engine cleanup every 10 seconds
+- Job state updates from engines every 1 second
+- Final state detection and broadcasting
+
+**Startup Recovery** (fastapi_app/__init__.py):
+- Automatic detection of zombie jobs (marked "running" but no engine)
+- Jobs marked as "paused" on server restart
+- User notification of interrupted jobs
+
+---
+
+## Test 12: Health Check Endpoint
+
+**Goal**: Verify health monitoring endpoint
+
+**Steps**:
+1. Start the app
+
+2. Navigate to http://localhost:5001/health or use curl:
+   ```bash
+   curl -s http://localhost:5001/health | python3 -m json.tool
+   ```
+
+**Expected Results**:
+- [ ] Returns JSON with overall status ("healthy", "degraded", or "unhealthy")
+- [ ] Shows storage component status with job count
+- [ ] Shows background tasks status with log_indexer status
+- [ ] Shows job_engines status with total and running engine counts
+- [ ] Shows logs directory status
+- [ ] All healthy components show "healthy" status
+- [ ] Overall status is "healthy" when all components are operational
+
+**Example healthy response**:
+```json
+{
+    "status": "healthy",
+    "timestamp": "2025-10-29T09:50:16.344894",
+    "components": {
+        "storage": {
+            "status": "healthy",
+            "job_count": 0
+        },
+        "background_tasks": {
+            "status": "healthy",
+            "log_indexer": "running"
+        },
+        "job_engines": {
+            "status": "healthy",
+            "total_engines": 0,
+            "running_engines": 0
+        },
+        "logs": {
+            "status": "healthy",
+            "path_exists": true
+        }
+    }
+}
+```
+
+---
+
 ## Success Criteria
 
-All 11 tests must pass for the application to be considered production-ready.
+All 12 tests must pass for the application to be considered production-ready.
 
 **Test Results Summary**:
-- Tests Passed: ___/11
-- Tests Failed: ___/11
+- Tests Passed: ___/12
+- Tests Failed: ___/12
 - Blockers: ___

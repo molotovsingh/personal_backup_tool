@@ -51,3 +51,14 @@ def get_logs_dir() -> Path:
     logs_dir = get_data_dir() / 'logs'
     logs_dir.mkdir(parents=True, exist_ok=True)
     return logs_dir
+
+
+def get_db_path() -> Path:
+    """
+    Get path to SQLite database file
+
+    Creates the data directory if it doesn't exist.
+    """
+    data_dir = get_data_dir() / 'data'
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir / 'logs.db'

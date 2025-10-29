@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>{% block title %}Backup Manager{% endblock %}</title>
+    <!-- CDN Assets -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10" crossorigin="anonymous"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <!-- CSRF token for HTMX requests -->
+    <script>
+        document.addEventListener('htmx:configRequest', (event) => {
+            event.detail.headers['X-CSRFToken'] = '{{ csrf_token() }}';
+        });
+    </script>
+
+    <!-- Loading Indicator Styles (Task 5.5) -->
+    <style>
+        /* Spinner animation */
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 1rem;
+            height: 1rem;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+
+        .spinner-dark {
+            border: 2px solid rgba(0, 0, 0, 0.1);
+            border-top-color: rgba(0, 0, 0, 0.5);
+        }
+
+        /* Loading overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        .loading-overlay .spinner-large {
+            width: 3rem;
+            height: 3rem;
+            border-width: 4px;
+        }
+
+        /* Button loading state */
+        .btn-loading {
+            position: relative;
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        .btn-loading::after {
+            content: '';
+            position: absolute;
+            width: 1rem;
+            height: 1rem;
+            top: 50%;
+            left: 50%;
+            margin-left: -0.5rem;
+            margin-top: -0.5rem;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+
+        /* Pulse animation for loading state */
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .loading-pulse {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        /* HTMX loading indicator */
+        .htmx-request .htmx-indicator {
+            display: inline-block !important;
+        }
+
+        .htmx-indicator {
+            display: none;
+        }
+    </style>
+
+    <!-- Loading Indicator JavaScript (Task 5.5) -->
+    <script>
+        // Global loading overlay functions
+        function showLoadingOverlay(message = 'Loading...') {
+            // Remove existing overlay if any
+            hideLoadingOverlay();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'global-loading-overlay';
+            overlay.className = 'loading-overlay';
+            overlay.innerHTML = `
+                <div class="bg-white p-6 rounded-lg shadow-xl flex flex-col items-center">
+                    <div class="spinner spinner-large spinner-dark mb-3"></div>
+                    <div class="text-gray-700 font-medium">${message}</div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+        }
+
+        function hideLoadingOverlay() {
+            const overlay = document.getElementById('global-loading-overlay');
+            if (overlay) {
+                overlay.remove();
+            }
+        }
+
+        // HTMX event handlers for loading states
+        document.addEventListener('htmx:beforeRequest', (event) => {
+            const target = event.target;
+
+            // Add loading class to buttons
+            if (target.tagName === 'BUTTON' || target.type === 'submit') {
+                target.classList.add('btn-loading');
+                target.disabled = true;
+            }
+
+            // Add loading class to forms
+            if (target.tagName === 'FORM') {
+                const submitBtn = target.querySelector('button[type="submit"]');
+                if (submitBtn) {
+                    submitBtn.classList.add('btn-loading');
+                    submitBtn.disabled = true;
+                }
+            }
+        });
+
+        document.addEventListener('htmx:afterRequest', (event) => {
+            const target = event.target;
+
+            // Remove loading class from buttons
+            if (target.tagName === 'BUTTON' || target.type === 'submit') {
+                target.classList.remove('btn-loading');
+                target.disabled = false;
+            }
+
+            // Remove loading class from forms
+            if (target.tagName === 'FORM') {
+                const submitBtn = target.querySelector('button[type="submit"]');
+                if (submitBtn) {
+                    submitBtn.classList.remove('btn-loading');
+                    submitBtn.disabled = false;
+                }
+            }
+
+            // Hide overlay if shown
+            hideLoadingOverlay();
+        });
+
+        // Handle errors - ensure loading states are cleaned up
+        document.addEventListener('htmx:responseError', (event) => {
+            const target = event.target;
+
+            // Remove loading states
+            if (target.tagName === 'BUTTON') {
+                target.classList.remove('btn-loading');
+                target.disabled = false;
+            }
+
+            if (target.tagName === 'FORM') {
+                const submitBtn = target.querySelector('button[type="submit"]');
+                if (submitBtn) {
+                    submitBtn.classList.remove('btn-loading');
+                    submitBtn.disabled = false;
+                }
+            }
+
+            hideLoadingOverlay();
+        });
+    </script>
+</head>
+<body class="bg-gray-100">
+    <div class="flex h-screen">
+        <!-- Sidebar Navigation -->
+        <aside class="w-64 bg-gray-900 text-white">
+            <div class="p-4">
+                <h1 class="text-2xl font-bold">💾 Backup Manager</h1>
+                <p class="text-sm text-gray-400">v2.0.0</p>
+            </div>
+            <nav class="mt-8">
+                <a href="/" class="block px-4 py-3 hover:bg-gray-800 {% if request.path == '/' or request.endpoint == 'dashboard' %}bg-gray-800{% endif %}">
+                    Dashboard
+                </a>
+                <a href="/jobs" class="block px-4 py-3 hover:bg-gray-800 {% if request.endpoint and 'jobs' in request.endpoint %}bg-gray-800{% endif %}">
+                    Jobs
+                </a>
+                <a href="/settings" class="block px-4 py-3 hover:bg-gray-800 {% if request.endpoint and 'settings' in request.endpoint %}bg-gray-800{% endif %}">
+                    Settings
+                </a>
+                <a href="/logs" class="block px-4 py-3 hover:bg-gray-800 {% if request.endpoint and 'logs' in request.endpoint %}bg-gray-800{% endif %}">
+                    Logs
+                </a>
+            </nav>
+
+            <!-- Crash Recovery Prompt -->
+            {% if show_recovery_prompt %}
+            <div class="mx-4 mt-8 p-4 bg-yellow-900 border border-yellow-600 rounded-lg">
+                <div class="flex items-start mb-3">
+                    <span class="text-2xl mr-2">⚠️</span>
+                    <div>
+                        <h3 class="font-bold text-yellow-100 mb-1">Crash Detected</h3>
+                        <p class="text-sm text-yellow-200">
+                            Found {{ interrupted_job_count }} interrupted job(s) from previous session
+                        </p>
+                    </div>
+                </div>
+                <div class="space-y-2">
+                    <form action="/recover-jobs" method="POST">
+                        <button type="submit"
+                                class="w-full bg-green-600 text-white px-3 py-2 rounded text-sm hover:bg-green-700 transition"
+                                onclick="this.disabled=true; this.form.submit();">
+                            ✅ Recover (mark as paused)
+                        </button>
+                        <p class="mt-1 text-xs text-green-200">Ensures safe state; resume later from Jobs.</p>
+                    </form>
+                    <form action="/dismiss-recovery" method="POST">
+                        <button type="submit"
+                                class="w-full bg-gray-700 text-gray-200 px-3 py-2 rounded text-sm hover:bg-gray-600 transition"
+                                onclick="this.disabled=true; this.form.submit();">
+                            Dismiss
+                        </button>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 overflow-y-auto">
+            <div class="container mx-auto px-6 py-8">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="mb-4 p-4 rounded-lg {% if category == 'error' %}bg-red-100 text-red-700{% else %}bg-green-100 text-green-700{% endif %}">
+                                {{ message }}
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+    </div>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

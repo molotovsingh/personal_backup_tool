@@ -18,3 +18,4 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 <!-- OPENSPEC:END -->
 
 - remote gitis https://github.com/molotovsingh/personal_backup_tool.git
+- prefer UV python library for package managment if applicable

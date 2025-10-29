@@ -1,0 +1,226 @@
+{
+  "order_type": "test-script-development",
+  "order_id": "rsync-parallel-sharding-test-v1",
+  "title": "Test Plan and Order: Validate Parallel rsync via Sharded Jobs (3–4 parts)",
+  "version": "1.1.0",
+  "created_at": "2025-10-26T00:00:00Z",
+  "owner": {
+    "requester": "project-owner",
+    "assignee": "engineering",
+    "reviewers": ["ops", "qa"]
+  },
+  "goal": "Validate throughput and correctness of running rsync in parallel by sharding a large transfer into 3–4 independent jobs, and determine whether this approach is safe and beneficial for production use.
+  ",
+  "context": {
+    "problem": "Single rsync over large trees can be slow due to single-threaded scanning and transfer behavior. Parallelizing by sharding the file list may improve throughput on multi-core systems and across high-latency links.",
+    "environments": ["macOS"],
+    "assumptions": [
+      "rsync is installed and reachable on both source and destination",
+      "SSH connectivity (if remote) is stable and authenticated",
+      "Sufficient CPU, disk IOPS, and bandwidth to benefit from concurrency",
+      "Destination has enough free space for full dataset",
+      "Hard link preservation across shards (-H) is not a requirement for this test"
+    ],
+    "risks": [
+      "Using --delete in multiple parallel rsyncs can cause unintended deletions",
+      "Hard links spanning shards will not be preserved unless a single pass with -H is used",
+      "Too many parallel jobs can thrash disks or saturate network, reducing performance"
+    ]
+  },
+  "platform": "macOS",
+  "macos": {
+    "brew_packages": ["rsync", "coreutils", "parallel"],
+    "path_note_arm64": "export PATH=\"/opt/homebrew/opt/rsync/bin:/opt/homebrew/bin:$PATH\"",
+    "path_note_intel": "export PATH=\"/usr/local/opt/rsync/bin:/usr/local/bin:$PATH\"",
+    "tools": {
+      "split": "gsplit (from coreutils)",
+      "stat": "gstat (from coreutils)",
+      "checksum_cmd": "shasum -a 256"
+    },
+    "rsync_macos_metadata_flags": "-AX",
+    "recommended_excludes": [".DS_Store", "._*"]
+  },
+  "scope": {
+    "in_scope": [
+      "Develop a test harness script to run 3–4 parallel rsync jobs against a target dataset",
+      "Support multiple sharding strategies: top-level directories, count-balanced file list, size-balanced file list",
+      "Collect metrics: wall time, aggregate throughput, bytes/files transferred, error counts",
+      "Optional integrity verification via checksum sampling or rsync --checksum on a subset",
+      "Dry-run capability and safe logging for reproducibility",
+      "Single final --delete cleanup pass (optional, off by default) after parallel sync completes"
+    ],
+    "out_of_scope": [
+      "Modifying production job manager or UI",
+      "Rclone/cloud transfer benchmarking",
+      "Cross-shard hard link preservation (-H across shards)",
+      "Filesystem-level tuning beyond basic ionice/nice"
+    ],
+    "constraints": [
+      "Avoid --delete in parallel jobs; if needed, perform a single post-pass only",
+      "Use --partial and a per-shard --partial-dir to support resumability",
+      "Target 3–4 parallel shards only for this evaluation"
+    ]
+  },
+  "deliverables": {
+    "script": {
+      "path": "scripts/rsync_parallel_test.sh",
+      "language": "bash",
+      "description": "Runs 3–4 parallel rsync jobs from generated shard lists; aggregates results and writes a JSON summary.",
+      "inputs": {
+        "src": "Source path",
+        "dst": "Destination path (local or user@host:/path)",
+        "shards": "3 or 4",
+        "method": "one of: top-level|count-balanced|size-balanced|size-tiers",
+        "log_dir": "Output directory for logs",
+        "dry_run": "true/false",
+        "bwlimit": "Optional bandwidth limit (e.g., 50M)",
+        "extra_rsync": "Additional rsync flags if needed"
+      },
+      "outputs": {
+        "logs": "Per-shard rsync logs + consolidated summary log",
+        "json_summary": "logs/rsync_parallel_results.json"
+      },
+      "dependencies": [
+        "rsync (Homebrew recommended)",
+        "find (BSD find ok; prefer directory listing via ls for top-level)",
+        "gsplit (from Homebrew coreutils)",
+        "gstat (from Homebrew coreutils)",
+        "python3 (for size-balanced bin packing)",
+        "gnu parallel (optional, for --pipe mode)",
+        "shasum (builtin; use shasum -a 256)"
+      ]
+    },
+    "documentation": [
+      "README snippet describing how to run the test script",
+      "Notes on safe use, especially around --delete"
+    ],
+    "artifacts": [
+      "Per-shard file lists (when applicable)",
+      "Timing and throughput metrics",
+      "Error summaries"
+    ]
+  },
+  "methods": {
+    "top_level": "Shard by top-level directories using split -n l/N",
+    "count_balanced": "Shard by file count: find files and split into N equal lists",
+    "size_balanced": "Generate size+path list and bin-pack into N shards with near-equal total bytes",
+    "size_tiers": "Run N parallel rsync commands split by --min-size/--max-size"
+  },
+  "baseline": {
+    "description": "Single rsync run over the same dataset with identical flags, used for comparison",
+    "command_template": "rsync -a --partial --info=progress2 {EXTRA} {SRC}/ {DST}/"
+  },
+  "command_templates": {
+    "rsync_core": "rsync -a --partial --partial-dir=.rsync-partial --info=stats2 --numeric-ids {EXTRA} --files-from={FILES} {SRC}/ {DST}/",
+    "rsync_scan": "rsync -a --partial --partial-dir=.rsync-partial --info=stats2 --numeric-ids {EXTRA} {SRC}/ {DST}/",
+    "parallel_pipe": "find . -type f -print0 | parallel -0 -j{N} --block 10M --pipe rsync -a --from0 --info=stats2 {EXTRA} --files-from=- {SRC}/ {DST}/",
+    "note_macos_metadata": "On macOS, add -AX to preserve ACLs and xattrs if required; otherwise omit for speed."
+  },
+  "test_matrix": {
+    "shard_counts": [3, 4],
+    "methods": ["top_level", "count_balanced", "size_balanced", "size_tiers"],
+    "datasets": [
+      "real-world dataset (preferred)",
+      "synthetic mixed (optional)"
+    ],
+    "network": ["LAN", "WAN/SSH"],
+    "repeats": 2
+  },
+  "metrics": {
+    "collect": [
+      "wall_time_seconds",
+      "aggregate_throughput_mbps",
+      "bytes_transferred",
+      "files_transferred",
+      "rsync_exit_codes_per_shard",
+      "error_count",
+      "cpu_load_avg (optional)",
+      "io_wait_pct (optional)"
+    ],
+    "success_thresholds": {
+      "throughput_improvement_vs_baseline_pct": ">=15",
+      "rsync_exit_codes_all_zero": true,
+      "checksum_mismatch_sample_count": 0
+    }
+  },
+  "acceptance_criteria": [
+    "A single baseline rsync completes successfully with exit code 0 and metrics recorded",
+    "Parallel runs complete for both 3 and 4 shards using at least two methods (recommended: count-balanced and size-balanced)",
+    "All parallel shards exit with code 0; consolidated summary JSON is generated",
+    "Aggregate bytes transferred by parallel run equals baseline bytes (within 0.1% tolerance if metadata differs)",
+    "Checksum sampling over at least 500 files (or all files if <500) shows 0 mismatches",
+    "Observed throughput improvement vs baseline is >= 15% on at least one method",
+    "No use of --delete during parallel runs; if cleanup is exercised, it is executed in a single post-pass only",
+    "If -AX is enabled, sample verification confirms ACLs/xattrs preserved on the destination",
+    "Script can resume after interruption due to --partial and per-shard .rsync-partial directories",
+    "All logs and the JSON summary are saved under the chosen log directory"
+  ],
+  "what_to_do": [
+    "Install Homebrew rsync/coreutils/parallel and set PATH precedence for rsync 3.x",
+    "Implement script options: --src, --dst, --method, --shards, --log-dir, --dry-run, --bwlimit, --extra",
+    "Add 'baseline' mode to run and record a single rsync for comparison",
+    "Implement list generation per method (top-level, count-balanced, size-balanced)",
+    "Implement size-balanced bin packing (python3 helper acceptable)",
+    "Launch 3–4 rsync jobs in parallel with proper quoting and --files-from where applicable",
+    "Collect per-shard exit codes and stats; compute aggregate metrics",
+    "Implement checksum sampling using 'shasum -a 256' (e.g., random N files) to validate integrity",
+    "Produce machine-readable JSON results and concise human-readable summary",
+    "Document safety guidance (no --delete in parallel; final cleanup pass optional)",
+    "Provide example commands for Linux and macOS (gsplit/gstat notes)"
+  ],
+  "what_not_to_do": [
+    "Do not use --delete in parallel jobs",
+    "Do not enable -H expecting cross-shard hard links to be preserved",
+    "Do not run more than 4 shards in this evaluation without explicit approval",
+    "Do not run against production data without --dry-run first and stakeholder sign-off",
+    "Do not require non-standard dependencies when a portable alternative exists"
+  ],
+  "data_validation": {
+    "strategies": [
+      "Checksum sample: randomly sample N files from src, compute sha256 on src and dst via 'shasum -a 256'; require 0 mismatches",
+      "Size and count parity: compare file counts and total bytes between baseline and parallel runs",
+      "Optional: rsync --checksum on a small subset as a spot-check"
+    ],
+    "tolerance": {
+      "bytes": 0,
+      "count": 0
+    },
+    "checksum_cmd": "shasum -a 256"
+  },
+  "safety": {
+    "defaults": [
+      "--partial --partial-dir=.rsync-partial",
+      "No --delete in parallel",
+      "Use --numeric-ids; avoid ownership surprises"
+    ],
+    "throttling": [
+      "Support --bwlimit if needed",
+      "Allow nice/ionice hints where available"
+    ]
+  },
+  "example_usage_macos": [
+    "scripts/rsync_parallel_test.sh --src /Volumes/Source --dst /Volumes/Dest --shards 4 --method count-balanced --log-dir logs/rsync-test --extra '-AX --exclude .DS_Store --exclude \"._*\"'",
+    "scripts/rsync_parallel_test.sh --src /Volumes/Source --dst /Volumes/Dest --shards 3 --method size-balanced --log-dir logs/rsync-test --extra '-a'"
+  ],
+  "rollback_plan": [
+    "If parallel run produces errors or mismatches, stop and rerun single baseline rsync with -c (checksum) to reconcile",
+    "If destination was only partially updated, retain .rsync-partial and re-run with same shard lists to resume",
+    "If --delete cleanup was executed and issues found, restore from snapshots/backups per site policy"
+  ],
+  "review_process": {
+    "steps": [
+      "Engineer runs baseline + at least two parallel methods",
+      "Engineer compiles results JSON and a short memo of findings",
+      "Ops/QA review metrics and safety posture",
+      "Decision: adopt method + parameters or defer"
+    ],
+    "signoff": {
+      "approver": "",
+      "date": ""
+    }
+  },
+  "references": [
+    "man rsync",
+    "GNU parallel documentation"
+  ]
+}

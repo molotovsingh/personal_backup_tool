@@ -1,0 +1,709 @@
+{% extends "base.html" %}
+
+{% block title %}Jobs - Backup Manager{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl" x-data="{ createFormOpen: false }">
+    <div class="flex justify-between items-center mb-2">
+        <h1 class="text-3xl font-bold">Active Backup Jobs</h1>
+        <button @click="createFormOpen = !createFormOpen"
+                class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition flex items-center gap-2">
+            <span x-show="!createFormOpen">+ Create New Job</span>
+            <span x-show="createFormOpen">− Cancel</span>
+        </button>
+    </div>
+
+    <div class="mb-6">
+        <a href="/jobs/history" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
+            View Job History →
+        </a>
+    </div>
+
+    <!-- Inline Create Job Form -->
+    <div x-show="createFormOpen"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 -translate-y-4"
+         x-transition:enter-end="opacity-100 translate-y-0"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100 translate-y-0"
+         x-transition:leave-end="opacity-0 -translate-y-4"
+         style="max-height: 80vh; overflow-y: auto; overflow-x: hidden; scroll-behavior: smooth;"
+         class="mb-6 bg-white rounded-lg shadow-xl p-6">
+        <h2 class="text-xl font-bold mb-4 text-gray-800">Create New Backup Job</h2>
+
+        <form hx-post="/jobs/create"
+              hx-target="#jobs-content"
+              hx-swap="outerHTML"
+              hx-on::after-request="if(event.detail.successful && event.detail.xhr.responseURL.includes('/jobs/create')) { createFormOpen = false; this.reset(); document.getElementById('deletion-options').innerHTML = ''; }"
+              class="space-y-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Job Name -->
+                <div>
+                    <label for="name" class="block text-sm font-medium text-gray-700 mb-1">
+                        Job Name *
+                    </label>
+                    <input type="text"
+                           id="name"
+                           name="name"
+                           required
+                           placeholder="e.g., Photos Backup"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm">
+                </div>
+
+                <!-- Job Type -->
+                <div>
+                    <label for="type" class="block text-sm font-medium text-gray-700 mb-1">
+                        Backup Type *
+                    </label>
+                    <select id="type"
+                            name="type"
+                            required
+                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm">
+                        <option value="rsync">rsync (local)</option>
+                        <option value="rclone">rclone (cloud)</option>
+                    </select>
+                </div>
+
+                <!-- Source Path -->
+                <div>
+                    <label for="source" class="block text-sm font-medium text-gray-700 mb-1">
+                        Source Path *
+                    </label>
+                    <input type="text"
+                           id="source"
+                           name="source"
+                           required
+                           placeholder="/Users/you/Photos or gdrive:Photos"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm">
+                </div>
+
+                <!-- Destination Path -->
+                <div>
+                    <label for="dest" class="block text-sm font-medium text-gray-700 mb-1">
+                        Destination Path *
+                    </label>
+                    <input type="text"
+                           id="dest"
+                           name="dest"
+                           required
+                           placeholder="/Volumes/Backup/Photos"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm">
+                </div>
+
+                <!-- Bandwidth Limit -->
+                <div>
+                    <label for="bandwidth_limit" class="block text-sm font-medium text-gray-700 mb-1">
+                        Bandwidth Limit (KB/s)
+                    </label>
+                    <input type="number"
+                           id="bandwidth_limit"
+                           name="bandwidth_limit"
+                           min="0"
+                           value="0"
+                           placeholder="0 = unlimited"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm">
+                </div>
+            </div>
+
+            <!-- Source Deletion Settings -->
+            <div class="border-t border-gray-200 pt-4 mt-4">
+                <div class="flex items-center">
+                    <input type="checkbox"
+                           id="delete_source_after"
+                           name="delete_source_after"
+                           value="true"
+                           checked
+                           class="mr-3 w-4 h-4 text-red-600 focus:ring-red-500 cursor-pointer"
+                           hx-get="/jobs/deletion-ui"
+                           hx-trigger="load, change"
+                           hx-target="#deletion-options"
+                           hx-swap="innerHTML"
+                           hx-indicator=".deletion-options-indicator"
+                           hx-vals='js:{"delete_source_after": document.getElementById("delete_source_after").checked.toString()}'>
+                    <label for="delete_source_after" class="text-sm font-medium text-gray-700 cursor-pointer">
+                        🗑️ Delete source files after successful backup
+                    </label>
+                    <span class="deletion-options-indicator htmx-indicator ml-2 text-xs text-gray-400">Loading…</span>
+                </div>
+                <p class="ml-7 mt-1 text-xs text-red-600">
+                    ⚠️ WARNING: This will permanently delete source files after backup completes
+                </p>
+
+                <!-- Deletion Options (populated via HTMX when checkbox is checked) -->
+                <div id="deletion-options"
+                     class="mt-3"
+                     role="region"
+                     aria-live="polite"
+                     aria-label="Deletion options"></div>
+            </div>
+
+            <div class="flex gap-3 pt-4">
+                <button type="submit"
+                        class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition text-sm font-medium">
+                    Create Job
+                </button>
+                <button type="button"
+                        @click="createFormOpen = false; $el.closest('form').reset(); document.getElementById('deletion-options').innerHTML = '';"
+                        class="bg-gray-300 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-400 transition text-sm font-medium">
+                    Cancel
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Jobs Content (Flash Messages + Job List) -->
+    <div id="jobs-content">
+        {% include 'partials/jobs_content.html' %}
+    </div>
+</div>
+
+<!-- WebSocket connection for real-time updates -->
+<script>
+    // WebSocket reconnection state
+    let ws = null;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 10;
+    const BASE_RECONNECT_DELAY = 1000; // 1 second
+    const MAX_RECONNECT_DELAY = 30000; // 30 seconds
+    let reconnectTimeout = null;
+    let pollingFallback = null;
+
+    // Connection status indicator
+    function updateConnectionStatus(status, message) {
+        let statusEl = document.getElementById('ws-connection-status');
+        if (!statusEl) {
+            statusEl = document.createElement('div');
+            statusEl.id = 'ws-connection-status';
+            statusEl.className = 'fixed top-4 right-4 px-4 py-2 rounded-lg shadow-lg text-sm font-medium z-50';
+            document.body.appendChild(statusEl);
+        }
+
+        if (status === 'connected') {
+            statusEl.className = 'fixed top-4 right-4 px-4 py-2 rounded-lg shadow-lg text-sm font-medium z-50 bg-green-100 text-green-800 border border-green-300';
+            statusEl.textContent = '● Connected';
+            setTimeout(() => statusEl.style.display = 'none', 3000);
+        } else if (status === 'reconnecting') {
+            statusEl.className = 'fixed top-4 right-4 px-4 py-2 rounded-lg shadow-lg text-sm font-medium z-50 bg-yellow-100 text-yellow-800 border border-yellow-300';
+            statusEl.textContent = `● Reconnecting... (${message})`;
+            statusEl.style.display = 'block';
+        } else if (status === 'disconnected') {
+            statusEl.className = 'fixed top-4 right-4 px-4 py-2 rounded-lg shadow-lg text-sm font-medium z-50 bg-red-100 text-red-800 border border-red-300';
+            statusEl.textContent = '● Disconnected - ' + message;
+            statusEl.style.display = 'block';
+        } else if (status === 'polling') {
+            statusEl.className = 'fixed top-4 right-4 px-4 py-2 rounded-lg shadow-lg text-sm font-medium z-50 bg-blue-100 text-blue-800 border border-blue-300';
+            statusEl.textContent = '● Using fallback polling';
+            statusEl.style.display = 'block';
+        }
+    }
+
+    // Enable polling fallback when WebSocket fails
+    function enablePollingFallback() {
+        if (pollingFallback) return; // Already enabled
+
+        console.log('Jobs: Enabling polling fallback');
+        updateConnectionStatus('polling', 'Using periodic refresh');
+
+        // Poll every 5 seconds using HTMX
+        pollingFallback = setInterval(() => {
+            const jobsContent = document.getElementById('jobs-content');
+            if (jobsContent) {
+                htmx.ajax('GET', '/jobs', {
+                    target: '#jobs-content',
+                    swap: 'outerHTML'
+                });
+            }
+        }, 5000);
+    }
+
+    // Disable polling fallback when WebSocket reconnects
+    function disablePollingFallback() {
+        if (pollingFallback) {
+            console.log('Jobs: Disabling polling fallback');
+            clearInterval(pollingFallback);
+            pollingFallback = null;
+        }
+    }
+
+    // Show notification toast
+    function showNotification(level, message, details) {
+        const notificationContainer = document.getElementById('notification-container') || createNotificationContainer();
+
+        const notification = document.createElement('div');
+        notification.className = 'notification transform transition-all duration-300 ease-in-out mb-3 p-4 rounded-lg shadow-lg max-w-md';
+
+        // Style based on level
+        const levelStyles = {
+            'info': 'bg-blue-100 text-blue-800 border border-blue-300',
+            'success': 'bg-green-100 text-green-800 border border-green-300',
+            'warning': 'bg-yellow-100 text-yellow-800 border border-yellow-300',
+            'error': 'bg-red-100 text-red-800 border border-red-300'
+        };
+        notification.className += ' ' + (levelStyles[level] || levelStyles['info']);
+
+        // Build notification HTML
+        let html = '<div class="flex items-start">';
+        html += '<div class="flex-1">';
+        html += `<div class="font-semibold">${escapeHtml(message)}</div>`;
+        if (details) {
+            html += `<div class="text-sm mt-1 opacity-90">${escapeHtml(details)}</div>`;
+        }
+        html += '</div>';
+        html += '<button class="ml-4 text-gray-500 hover:text-gray-700" onclick="this.parentElement.parentElement.remove()">✕</button>';
+        html += '</div>';
+
+        notification.innerHTML = html;
+        notificationContainer.appendChild(notification);
+
+        // Auto-dismiss after 7 seconds
+        setTimeout(() => {
+            notification.style.opacity = '0';
+            setTimeout(() => notification.remove(), 300);
+        }, 7000);
+    }
+
+    function createNotificationContainer() {
+        const container = document.createElement('div');
+        container.id = 'notification-container';
+        container.className = 'fixed top-20 right-4 z-50';
+        document.body.appendChild(container);
+        return container;
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Connect to WebSocket with reconnection logic
+    function connectWebSocket() {
+        // Clear any pending reconnection timeout
+        if (reconnectTimeout) {
+            clearTimeout(reconnectTimeout);
+            reconnectTimeout = null;
+        }
+
+        try {
+            // Use the same port as the current page (works for both development and production)
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = wsProtocol + '//' + window.location.host + '/ws';
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                console.log('Jobs: WebSocket connected');
+                reconnectAttempts = 0; // Reset retry counter on successful connection
+                updateConnectionStatus('connected', '');
+                disablePollingFallback(); // Disable polling when WebSocket works
+            };
+
+            ws.onmessage = function(event) {
+                const message = JSON.parse(event.data);
+                console.log('Jobs: Message received', message);
+
+                // Handle job_update and job_final_update message types
+                if (message.type === 'job_update' || message.type === 'job_final_update') {
+                    const data = message;
+
+                    // Update the specific job card with new progress
+                    const jobCard = document.querySelector(`[data-job-id="${data.job_id}"]`);
+                    if (jobCard) {
+                        // Update progress bar
+                        const progressBar = jobCard.querySelector('.progress-bar');
+                        if (progressBar) {
+                            progressBar.style.width = data.percent + '%';
+                            progressBar.textContent = data.percent + '%';
+                        }
+
+                        // Update status badge if status changed
+                        if (data.status) {
+                            const statusBadge = jobCard.querySelector('.status-badge');
+                            if (statusBadge) {
+                                statusBadge.className = 'status-badge px-3 py-1 rounded-full text-sm font-semibold ' + getStatusClass(data.status);
+                                statusBadge.textContent = data.status;
+                            }
+                        }
+
+                        // Update transfer info
+                        if (data.bytes_transferred !== undefined) {
+                            const transferInfo = jobCard.querySelector('.transfer-info');
+                            if (transferInfo) {
+                                transferInfo.textContent = formatBytes(data.bytes_transferred) + ' / ' + formatBytes(data.total_bytes);
+                            }
+                        }
+
+                        // Update speed
+                        if (data.speed_bytes !== undefined) {
+                            const speedInfo = jobCard.querySelector('.speed-info');
+                            if (speedInfo) {
+                                speedInfo.textContent = formatBytes(data.speed_bytes) + '/s';
+                            }
+                        }
+
+                        // Update ETA
+                        if (data.eta_seconds !== undefined) {
+                            const etaInfo = jobCard.querySelector('.eta-info');
+                            if (etaInfo) {
+                                etaInfo.textContent = 'ETA: ' + formatDuration(data.eta_seconds);
+                            }
+                        }
+
+                        // Update deletion progress
+                        if (data.deletion && data.deletion.enabled) {
+                            const deletionProgress = jobCard.querySelector('.deletion-progress');
+                            if (deletionProgress) {
+                                const phaseText = deletionProgress.querySelector('.deletion-phase-text');
+                                const filesCount = deletionProgress.querySelector('.deletion-files-count');
+                                const bytesCount = deletionProgress.querySelector('.deletion-bytes-count');
+
+                                // Update phase-specific text
+                                if (phaseText) {
+                                    let phaseHtml = '';
+                                    const phase = data.deletion.phase;
+
+                                    if (phase === 'transfer') {
+                                        phaseHtml = '<span class="text-yellow-700">Transferring files...</span>';
+                                    } else if (phase === 'verifying') {
+                                        phaseHtml = '<span class="text-blue-700">🔍 Verifying backup integrity...</span>';
+                                    } else if (phase === 'deleting') {
+                                        const files = data.deletion.files_deleted || 0;
+                                        const mb = (data.deletion.bytes_deleted / 1024 / 1024).toFixed(2) || '0.00';
+                                        phaseHtml = `<span class="text-red-700">🗑️ Deleting source files... (${files} files, ${mb} MB)</span>`;
+                                    } else if (phase === 'completed') {
+                                        const files = data.deletion.files_deleted || 0;
+                                        phaseHtml = `<span class="text-green-700">✅ Deletion completed (${files} files deleted)</span>`;
+                                    } else if (phase === 'failed') {
+                                        phaseHtml = '<span class="text-red-700">❌ Deletion failed</span>';
+                                    }
+
+                                    phaseText.innerHTML = phaseHtml;
+                                }
+
+                                // Update counters separately if they exist (for deleting phase)
+                                if (filesCount && data.deletion.files_deleted !== undefined) {
+                                    filesCount.textContent = data.deletion.files_deleted;
+                                }
+                                if (bytesCount && data.deletion.bytes_deleted !== undefined) {
+                                    bytesCount.textContent = (data.deletion.bytes_deleted / 1024 / 1024).toFixed(2);
+                                }
+                            }
+                        }
+
+                        // Handle final state - trigger HTMX refresh instead of page reload
+                        if (message.type === 'job_final_update') {
+                            console.log('Jobs: Job reached final state', data.status);
+                            // Use HTMX to refresh job list (smooth, no full page reload)
+                            setTimeout(() => {
+                                const jobsContent = document.getElementById('jobs-content');
+                                if (jobsContent) {
+                                    htmx.ajax('GET', '/jobs', {
+                                        target: '#jobs-content',
+                                        swap: 'outerHTML'
+                                    });
+                                }
+                            }, 1000);
+                        }
+                    }
+                }
+
+                // Handle notification messages
+                if (message.type === 'notification') {
+                    showNotification(message.level, message.message, message.details);
+                }
+            };
+
+            ws.onerror = function(error) {
+                console.error('Jobs: WebSocket error', error);
+            };
+
+            ws.onclose = function() {
+                console.log('Jobs: WebSocket disconnected');
+
+                // Check if we've exceeded max retry attempts
+                if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+                    console.log('Jobs: Max reconnection attempts reached, enabling polling fallback');
+                    updateConnectionStatus('disconnected', 'Using fallback polling');
+                    enablePollingFallback();
+                    return;
+                }
+
+                // Calculate exponential backoff delay with jitter
+                const exponentialDelay = Math.min(
+                    BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempts),
+                    MAX_RECONNECT_DELAY
+                );
+                const jitter = Math.random() * 1000; // Add 0-1s random jitter
+                const delay = Math.floor(exponentialDelay + jitter);
+
+                reconnectAttempts++;
+                console.log(`Jobs: Reconnecting in ${delay}ms (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+                updateConnectionStatus('reconnecting', `attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`);
+
+                // Schedule reconnection
+                reconnectTimeout = setTimeout(() => connectWebSocket(), delay);
+            };
+
+        } catch (error) {
+            console.error('Jobs: Failed to create WebSocket', error);
+            // Retry with exponential backoff
+            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                const delay = Math.min(
+                    BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempts),
+                    MAX_RECONNECT_DELAY
+                );
+                reconnectAttempts++;
+                reconnectTimeout = setTimeout(() => connectWebSocket(), delay);
+            } else {
+                enablePollingFallback();
+            }
+        }
+    }
+
+    // Initial connection
+    connectWebSocket();
+
+    // Synchronize deletion checkbox with options panel
+    // Ensures checkbox state matches options panel visibility during HTMX updates
+    function syncDeletionCheckbox() {
+        const checkbox = document.getElementById('delete_source_after');
+        const optionsDiv = document.getElementById('deletion-options');
+
+        if (checkbox && optionsDiv) {
+            const isChecked = checkbox.checked;
+            const hasContent = optionsDiv.innerHTML.trim() !== '';
+
+            if (isChecked && !hasContent) {
+                // Checkbox is checked but options not loaded - trigger HTMX to load them
+                console.log('Deletion sync: Loading options panel (checkbox checked but panel empty)');
+                htmx.trigger(checkbox, 'change');
+            } else if (!isChecked && hasContent) {
+                // Checkbox is unchecked but options are visible - clear them
+                console.log('Deletion sync: Clearing options panel (checkbox unchecked but panel has content)');
+                optionsDiv.innerHTML = '';
+            }
+        }
+    }
+
+    // Run synchronization on page load
+    document.addEventListener('DOMContentLoaded', syncDeletionCheckbox);
+
+    // Run synchronization after HTMX updates (including job list refreshes)
+    document.body.addEventListener('htmx:afterSwap', function(event) {
+        // Only sync if the swap affected the jobs page form area
+        if (event.target.id === 'jobs-content' || event.target.contains(document.getElementById('delete_source_after'))) {
+            syncDeletionCheckbox();
+        }
+    });
+
+    // === TASK 5.2: Preserve form state during HTMX updates ===
+    // Store form state before HTMX requests
+    let formState = {};
+    
+    function saveFormState() {
+        const form = document.querySelector('form[hx-post="/jobs/create"]');
+        if (form) {
+            formState = {};
+            // Save all input values
+            form.querySelectorAll('input, select, textarea').forEach(input => {
+                if (input.name && input.type !== 'hidden') {
+                    if (input.type === 'checkbox') {
+                        formState[input.name] = input.checked;
+                    } else if (input.type === 'radio') {
+                        if (input.checked) {
+                            formState[input.name] = input.value;
+                        }
+                    } else {
+                        formState[input.name] = input.value;
+                    }
+                }
+            });
+            // Also save Alpine.js state
+            const alpineData = document.querySelector('[x-data*="createFormOpen"]');
+            if (alpineData && alpineData.__x) {
+                formState._createFormOpen = alpineData.__x.$data.createFormOpen;
+            }
+        }
+    }
+    
+    function restoreFormState() {
+        const form = document.querySelector('form[hx-post="/jobs/create"]');
+        if (form && Object.keys(formState).length > 0) {
+            // Restore input values
+            Object.keys(formState).forEach(name => {
+                if (name === '_createFormOpen') return;
+                const input = form.querySelector(`[name="${name}"]`);
+                if (input) {
+                    if (input.type === 'checkbox') {
+                        input.checked = formState[name];
+                    } else if (input.type === 'radio') {
+                        const radio = form.querySelector(`[name="${name}"][value="${formState[name]}"]`);
+                        if (radio) radio.checked = true;
+                    } else {
+                        input.value = formState[name];
+                    }
+                }
+            });
+            // Restore Alpine.js state
+            if (formState._createFormOpen !== undefined) {
+                const alpineData = document.querySelector('[x-data*="createFormOpen"]');
+                if (alpineData && alpineData.__x) {
+                    alpineData.__x.$data.createFormOpen = formState._createFormOpen;
+                }
+            }
+            // Trigger change events to update dependent fields
+            if (formState.delete_source_after) {
+                const checkbox = form.querySelector('#delete_source_after');
+                if (checkbox) {
+                    htmx.trigger(checkbox, 'change');
+                }
+            }
+        }
+    }
+    
+    // Save form state before any HTMX request that might refresh the page
+    document.body.addEventListener('htmx:beforeRequest', function(event) {
+        // Save state if request will affect job content area
+        if (event.target.id === 'jobs-content' || 
+            event.detail.target === '#jobs-content' ||
+            event.target.closest('#jobs-content')) {
+            saveFormState();
+        }
+    });
+    
+    // Restore form state after HTMX updates
+    document.body.addEventListener('htmx:afterSwap', function(event) {
+        if (event.target.id === 'jobs-content') {
+            restoreFormState();
+        }
+    });
+
+    // === TASK 5.3: Update only affected job cards (selective updates) ===
+    // Override WebSocket job updates to use selective updates
+    let originalHandleJobUpdate = null;
+    
+    function setupSelectiveUpdates() {
+        // Store original update handler
+        if (!originalHandleJobUpdate && window.ws) {
+            const originalOnMessage = ws.onmessage;
+            ws.onmessage = function(event) {
+                const message = JSON.parse(event.data);
+                
+                if (message.type === 'job_update') {
+                    // Selective update for individual job
+                    const jobId = message.job_id;
+                    const jobCard = document.querySelector(`[data-job-id="${jobId}"]`);
+                    
+                    if (jobCard) {
+                        // Fetch only this job's updated HTML
+                        fetch(`/jobs/${jobId}/card`, {
+                            headers: {
+                                'HX-Request': 'true',
+                                'Accept': 'text/html'
+                            }
+                        })
+                        .then(response => response.text())
+                        .then(html => {
+                            // Create temporary container
+                            const temp = document.createElement('div');
+                            temp.innerHTML = html;
+                            const newCard = temp.firstElementChild;
+                            
+                            if (newCard) {
+                                // Preserve expansion state
+                                const isExpanded = jobCard.__x && jobCard.__x.$data.expanded;
+                                
+                                // Replace the card
+                                jobCard.replaceWith(newCard);
+                                
+                                // Restore expansion state
+                                if (isExpanded && newCard.__x) {
+                                    newCard.__x.$data.expanded = true;
+                                }
+                            }
+                        })
+                        .catch(err => {
+                            console.error('Error updating job card:', err);
+                            // Fall back to original handler
+                            if (originalOnMessage) originalOnMessage.call(this, event);
+                        });
+                    } else {
+                        // Job not in current view, use original handler
+                        if (originalOnMessage) originalOnMessage.call(this, event);
+                    }
+                } else {
+                    // Not a job update, use original handler
+                    if (originalOnMessage) originalOnMessage.call(this, event);
+                }
+            };
+        }
+    }
+    
+    // Set up selective updates when WebSocket connects
+    document.addEventListener('DOMContentLoaded', function() {
+        // Wait a bit for WebSocket to be established
+        setTimeout(setupSelectiveUpdates, 1000);
+    });
+
+    // === TASK 5.4: Maintain scroll position during updates ===
+    let scrollPosition = 0;
+    let scrollElement = null;
+    
+    // Save scroll position before HTMX requests
+    document.body.addEventListener('htmx:beforeRequest', function(event) {
+        // Save scroll position for job list updates
+        if (event.target.id === 'jobs-content' || 
+            event.detail.target === '#jobs-content' ||
+            event.target.closest('#jobs-list')) {
+            scrollElement = window;
+            scrollPosition = window.pageYOffset || document.documentElement.scrollTop;
+            
+            // Also check if we're inside a scrollable container
+            const jobsList = document.getElementById('jobs-list');
+            if (jobsList && jobsList.scrollHeight > jobsList.clientHeight) {
+                scrollElement = jobsList;
+                scrollPosition = jobsList.scrollTop;
+            }
+        }
+    });
+    
+    // Restore scroll position after HTMX updates
+    document.body.addEventListener('htmx:afterSettle', function(event) {
+        if ((event.target.id === 'jobs-content' || event.target.id === 'jobs-list') && scrollElement) {
+            // Small delay to ensure DOM is fully rendered
+            requestAnimationFrame(() => {
+                if (scrollElement === window) {
+                    window.scrollTo(0, scrollPosition);
+                } else if (scrollElement.scrollTo) {
+                    scrollElement.scrollTo(0, scrollPosition);
+                }
+                scrollElement = null;
+                scrollPosition = 0;
+            });
+        }
+    });
+    
+    // Also maintain scroll during WebSocket updates
+    function maintainScrollDuringUpdate(updateFn) {
+        const currentScroll = window.pageYOffset || document.documentElement.scrollTop;
+        updateFn();
+        requestAnimationFrame(() => {
+            window.scrollTo(0, currentScroll);
+        });
+    }
+
+    // Clean up on page unload
+    window.addEventListener('beforeunload', function() {
+        if (ws) {
+            ws.close();
+        }
+        if (reconnectTimeout) {
+            clearTimeout(reconnectTimeout);
+        }
+        if (pollingFallback) {
+            clearInterval(pollingFallback);
+        }
+    });
+</script>
+{% endblock %}

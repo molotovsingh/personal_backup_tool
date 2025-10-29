@@ -103,7 +103,8 @@ def estimate_source_size(source_path: str) -> int:
         return total_bytes
 
     except Exception as e:
-        print(f"Warning: Failed to estimate source size: {e}")
+        import logging
+        logging.warning(f"Failed to estimate source size: {e}")
         return 0
 
 
@@ -244,5 +245,6 @@ def count_files_in_directory(dir_path: str) -> int:
         return count
 
     except Exception as e:
-        print(f"Warning: Failed to count files: {e}")
+        import logging
+        logging.warning(f"Failed to count files: {e}")
         return 0

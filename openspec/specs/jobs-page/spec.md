@@ -5,37 +5,46 @@ TBD - created by archiving change migrate-to-flask-app. Update Purpose after arc
 ## Requirements
 ### Requirement: Jobs page displays all jobs with status and controls
 
-The jobs page SHALL display all backup jobs in a list with status badges, progress information, and action buttons (start, pause, delete).
+The jobs page SHALL display **only running** backup jobs in a list with status badges, progress information, and action buttons (pause). A link to view job history is provided.
 
-#### Scenario: Jobs list displays all jobs
+#### MODIFIED Scenario: Jobs list displays running jobs only
 
 **Given** the user navigates to the jobs page
 **When** the page loads
-**Then** all jobs are displayed in a list
+**Then** only jobs with status "running" are displayed in a list
 **And** each job shows: name, type (rsync/rclone), source, destination, status
 **And** status is displayed as a color-coded badge
 **And** jobs are sorted by updated timestamp (most recent first)
+**And** page heading reads "Active Backup Jobs"
+**And** a "View Job History →" link is displayed below the heading
 
-#### Scenario: Job card shows appropriate controls based on status
+#### ADDED Scenario: Empty state when no jobs running
 
-**Given** a job with status "pending"
-**When** the job card is displayed
-**Then** an enabled "Start" button is shown
-**And** a "Delete" button is shown
-**And** no "Pause" button is shown
+**Given** the user navigates to the jobs page
+**When** the page loads
+**And** no jobs have status "running"
+**Then** an empty state message is displayed: "No jobs currently running"
+**And** a link to "View Job History →" is shown
+
+#### MODIFIED Scenario: Job card shows appropriate controls based on status
 
 **Given** a job with status "running"
 **When** the job card is displayed
 **Then** an enabled "Pause" button is shown
-**And** a "Delete" button is shown
 **And** progress bar, speed, and ETA are displayed
+**And** no "Delete" button is shown (running jobs cannot be deleted)
 **And** no "Start" button is shown
 
-**Given** a job with status "completed"
-**When** the job card is displayed
-**Then** a "✓ Completed" badge is shown
-**And** a "Delete" button is shown
-**And** no action buttons (Start/Pause) are shown
+#### MODIFIED Scenario: Delete job with inline confirmation
+
+**Given** any non-running job is displayed on the history page
+**When** the user clicks the "Delete" button
+**Then** inline "Delete? [Yes] [No]" buttons are shown
+**And** clicking "Yes" sends DELETE request to `/jobs/{id}`
+**And** job is removed from storage
+**And** job card is removed from the page
+**And** clicking "No" returns to normal state
+**And** no browser modal or alert is used
 
 ### Requirement: Create new job form with validation
 

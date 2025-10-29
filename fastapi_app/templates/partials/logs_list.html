@@ -1,0 +1,65 @@
+{% if logs %}
+<div class="bg-gray-50 rounded-lg p-4 font-mono text-xs overflow-x-auto" style="max-height: 600px; overflow-y: auto;">
+    {% for log in logs %}
+    <div class="flex gap-2 py-1 hover:bg-gray-100 px-2 rounded
+        {% if log.level == 'ERROR' %}border-l-2 border-red-500 bg-red-50{% endif %}
+        {% if log.level == 'WARNING' %}border-l-2 border-yellow-500 bg-yellow-50{% endif %}">
+
+        <!-- Line Number -->
+        <span class="text-gray-400 select-none flex-shrink-0 w-12 text-right">{{ log.line_number }}</span>
+
+        <!-- Timestamp -->
+        {% if log.timestamp %}
+        <span class="text-gray-500 flex-shrink-0">{{ log.timestamp }}</span>
+        {% endif %}
+
+        <!-- Level Badge -->
+        <span class="flex-shrink-0
+            {% if log.level == 'ERROR' %}text-red-700 font-bold{% endif %}
+            {% if log.level == 'WARNING' %}text-yellow-700 font-semibold{% endif %}
+            {% if log.level == 'INFO' %}text-blue-600{% endif %}
+            {% if log.level == 'DEBUG' %}text-gray-500{% endif %}">
+            {% if log.level == 'ERROR' %}🔴{% endif %}
+            {% if log.level == 'WARNING' %}🟡{% endif %}
+            {% if log.level == 'INFO' %}🔵{% endif %}
+            {% if log.level == 'DEBUG' %}⚪{% endif %}
+        </span>
+
+        <!-- Job Name -->
+        <span class="text-blue-600 font-semibold flex-shrink-0">[{{ log.job_name }}]</span>
+
+        <!-- Log Content -->
+        <span class="flex-1 break-all
+            {% if log.level == 'ERROR' %}text-red-900{% endif %}
+            {% if log.level == 'WARNING' %}text-yellow-900{% endif %}
+            {% if log.level == 'INFO' %}text-gray-700{% endif %}
+            {% if log.level == 'DEBUG' %}text-gray-500{% endif %}">
+            {% if log.highlighted %}
+                {{ log.line | replace(log.highlighted, '<mark class="bg-yellow-300 px-1 rounded">' + log.highlighted + '</mark>') | safe }}
+            {% else %}
+                {{ log.line }}
+            {% endif %}
+        </span>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="mt-4 text-sm text-gray-500 text-center">
+    Displaying {{ logs | length }} log entries
+    {% if search_term %}
+        matching "{{ search_term }}"
+    {% endif %}
+    {% if selected_level and selected_level != 'all' %}
+        · Filtered to {{ selected_level }} level
+    {% endif %}
+</div>
+{% else %}
+<div class="text-center py-12 text-gray-500">
+    <p class="text-lg mb-2">No logs found</p>
+    {% if search_term %}
+    <p class="text-sm">Try adjusting your search term or filter</p>
+    {% else %}
+    <p class="text-sm">No log files available yet. Run some backup jobs to generate logs.</p>
+    {% endif %}
+</div>
+{% endif %}

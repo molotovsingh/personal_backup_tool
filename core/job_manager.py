@@ -10,6 +10,10 @@ from engines.rsync_engine import RsyncEngine
 from utils.validation import validate_job_before_start
 from utils.safety_checks import validate_deletion_safety
 from utils.deletion_logger import DeletionLogger
+from core.error_recovery import GracefulDegradation, get_circuit_breaker
+from core.error_repository import get_error_repository
+from models.error_event import ErrorEvent
+from utils.rwlock import ReadWriteLock
 
 
 class JobManager:
@@ -30,8 +34,20 @@ class JobManager:
             self.storage = JobStorage()
             self.engines: Dict[str, any] = {}  # job_id -> engine instance
             self.last_progress_save: Dict[str, Tuple[float, int]] = {}  # job_id -> (timestamp, percent)
-            self._lock = threading.RLock()  # Re-entrant lock for job operations and storage access
+            self.engine_stop_times: Dict[str, float] = {}  # job_id -> timestamp when engine stopped
+            
+            # TASK 7.4: Use read-write lock for better concurrency
+            # Replace single RLock with ReadWriteLock for improved read performance
+            self._rwlock = ReadWriteLock("JobManager")
+            # Keep legacy lock names for compatibility
+            self._lock = self._rwlock  # For backward compatibility
             self._engines_lock = threading.Lock()  # Protect engines dict access
+
+            # Job list cache (Task 7.1)
+            self._job_list_cache: Optional[List[Dict]] = None
+            self._job_list_cache_time: float = 0.0
+            self._job_list_dirty: bool = True
+
             JobManager._initialized = True
 
     def create_job(
@@ -55,7 +71,8 @@ class JobManager:
         Returns:
             Tuple of (success, message, job_instance)
         """
-        with self._lock:
+        # TASK 7.4: Use write lock for job creation (exclusive access)
+        with self._rwlock.write_lock():
             try:
                 # Create job instance
                 job = Job(
@@ -73,6 +90,7 @@ class JobManager:
 
                 # Save to storage
                 if self.storage.save_job(job):
+                    self._mark_job_list_dirty()  # Invalidate cache
                     return True, f"Job '{name}' created successfully", job
                 else:
                     return False, "Failed to save job to storage", None
@@ -90,7 +108,8 @@ class JobManager:
         Returns:
             Tuple of (success, message)
         """
-        with self._lock:
+        # TASK 7.4: Use write lock for starting jobs (modifies state)
+        with self._rwlock.write_lock():
             try:
                 # Check if already running
                 with self._engines_lock:
@@ -189,15 +208,32 @@ class JobManager:
 
                 # Start engine
                 if engine.start():
-                    with self._engines_lock:
-                        self.engines[job_id] = engine
-                        # Initialize progress tracking for periodic persistence
-                        self.last_progress_save[job_id] = (time.time(), 0)
+                    engine_started = True
+                    try:
+                        with self._engines_lock:
+                            self.engines[job_id] = engine
+                            # Initialize progress tracking for periodic persistence
+                            self.last_progress_save[job_id] = (time.time(), 0)
 
-                    job.update_status(Job.STATUS_RUNNING)
-                    self.storage.update_job(job)
+                        job.update_status(Job.STATUS_RUNNING)
+                        self.storage.update_job(job)
+                        self._mark_job_list_dirty()  # Invalidate cache when status changes
 
-                    return True, f"Job '{job.name}' started successfully"
+                        return True, f"Job '{job.name}' started successfully"
+                    except Exception as e:
+                        # Clean up engine if post-start operations failed
+                        import logging
+                        logging.error(f"Post-start failure for job {job_id}, cleaning up engine: {e}")
+                        with self._engines_lock:
+                            if job_id in self.engines:
+                                try:
+                                    self.engines[job_id].stop()
+                                except Exception:
+                                    pass  # Best effort cleanup
+                                del self.engines[job_id]
+                            if job_id in self.last_progress_save:
+                                del self.last_progress_save[job_id]
+                        raise  # Re-raise to be caught by outer handler
                 else:
                     return False, "Failed to start backup engine"
 
@@ -206,7 +242,7 @@ class JobManager:
 
     def stop_job(self, job_id: str) -> Tuple[bool, str]:
         """
-        Stop a running backup job
+        Stop a backup job (pause)
 
         Args:
             job_id: ID of job to stop
@@ -214,7 +250,8 @@ class JobManager:
         Returns:
             Tuple of (success, message)
         """
-        with self._lock:
+        # TASK 7.4: Use write lock for stopping jobs (modifies state)
+        with self._rwlock.write_lock():
             try:
                 # Check if job is running and get engine
                 with self._engines_lock:
@@ -232,6 +269,7 @@ class JobManager:
                         job.update_progress(final_progress)
                         job.update_status(Job.STATUS_PAUSED)
                         self.storage.update_job(job)
+                        self._mark_job_list_dirty()  # Invalidate cache when status changes
 
                     # Clean up engine from memory
                     with self._engines_lock:
@@ -249,7 +287,10 @@ class JobManager:
 
     def get_job_status(self, job_id: str) -> Optional[Dict]:
         """
-        Get current status and progress of a job
+        Get current status and progress of a job (READ-ONLY)
+
+        This method is now read-only and does not modify job state.
+        Use update_job_from_engine() to update job state from engine progress.
 
         Args:
             job_id: ID of job to query
@@ -257,108 +298,219 @@ class JobManager:
         Returns:
             Dict with job info and current progress, or None if not found
         """
-        with self._lock:
+        # TASK 7.4: Use read lock for status queries (allows concurrent reads)
+        with self._rwlock.read_lock():
             try:
                 job = self.storage.get_job(job_id)
                 if not job:
                     return None
 
-                # If job is running, get live progress from engine
+                # If job is running, get live progress from engine (read-only)
+                live_progress = None
                 with self._engines_lock:
                     if job_id in self.engines:
                         engine = self.engines[job_id]
-                    else:
-                        engine = None
+                        if engine.is_running():
+                            live_progress = engine.get_progress()
 
-                if engine:
-                    if engine.is_running():
-                        live_progress = engine.get_progress()
-                        job.update_progress(live_progress)
-
-                        # Update storage periodically (throttled to prevent excessive I/O)
-                        if self._should_persist_progress(job_id, live_progress):
-                            self.storage.update_job(job)
-                            current_percent = live_progress.get('percent', 0)
-                            with self._engines_lock:
-                                self.last_progress_save[job_id] = (time.time(), current_percent)
-                    else:
-                        # Engine stopped but still in memory, clean up
-                        final_progress = engine.get_progress()
-                        job.update_progress(final_progress)
-                        if final_progress.get('status') == 'completed':
-                            job.update_status(Job.STATUS_COMPLETED)
-                        elif final_progress.get('status') == 'failed':
-                            job.update_status(Job.STATUS_FAILED)
-                        self.storage.update_job(job)
-
-                        with self._engines_lock:
-                            del self.engines[job_id]
-                            # Clean up progress tracking
-                            if job_id in self.last_progress_save:
-                                del self.last_progress_save[job_id]
-
-                return {
+                # Return job data with live progress if available
+                result = {
                     'id': job.id,
                     'name': job.name,
                     'source': job.source,
                     'dest': job.dest,
                     'type': job.type,
                     'status': job.status,
-                    'progress': job.progress,
+                    'progress': live_progress if live_progress else job.progress,
                     'settings': job.settings,
                     'created_at': job.created_at,
                     'updated_at': job.updated_at
                 }
 
+                return result
+
             except Exception as e:
-                print(f"Error getting job status: {e}")
+                import logging
+                logging.error(f"Error getting job status: {e}")
                 return None
 
-    def list_jobs(self) -> List[Dict]:
+    def update_job_from_engine(self, job_id: str) -> Tuple[bool, str]:
         """
-        List all jobs with current status
+        Update job state from engine progress (WRITE operation)
 
-        Returns:
-            List of job info dictionaries
-        """
-        with self._lock:
-            jobs = self.storage.load_jobs()
-            result = []
-
-            for job in jobs:
-                job_info = self.get_job_status(job.id)
-                if job_info:
-                    result.append(job_info)
-
-            return result
-
-    def delete_job(self, job_id: str) -> Tuple[bool, str]:
-        """
-        Delete a job
+        This method handles all job state modifications based on engine status.
+        Should be called periodically by background monitor.
 
         Args:
-            job_id: ID of job to delete
+            job_id: ID of job to update
 
         Returns:
-            Tuple of (success, message)
+            Tuple of (updated, message) - updated is True if job was modified
         """
-        with self._lock:
+        # TASK 7.4: Use write lock for updating job state
+        with self._rwlock.write_lock():
             try:
-                # Stop job if running
+                job = self.storage.get_job(job_id)
+                if not job:
+                    return False, f"Job {job_id} not found"
+
+                # Capture current version for optimistic locking
+                original_version = job.version
+
+                # Get engine
                 with self._engines_lock:
-                    is_running = job_id in self.engines
+                    if job_id not in self.engines:
+                        return False, "No engine found for job"
+                    engine = self.engines[job_id]
 
-                if is_running:
-                    self.stop_job(job_id)
+                # Update based on engine state
+                if engine.is_running():
+                    # Get live progress and update job
+                    live_progress = engine.get_progress()
+                    job.update_progress(live_progress)
 
-                # Delete from storage
-                if self.storage.delete_job(job_id):
-                    return True, "Job deleted successfully"
+                    # Persist progress periodically (throttled)
+                    if self._should_persist_progress(job_id, live_progress):
+                        # Check for concurrent modifications before saving
+                        storage_job = self.storage.get_job(job_id)
+                        if storage_job and storage_job.version != original_version:
+                            import logging
+                            logging.warning(
+                                f"Concurrent modification detected for job {job_id}: "
+                                f"original_version={original_version}, storage_version={storage_job.version}. "
+                                f"Proceeding with update (last write wins)."
+                            )
+
+                        self.storage.update_job(job)
+                        current_percent = live_progress.get('percent', 0)
+                        with self._engines_lock:
+                            self.last_progress_save[job_id] = (time.time(), current_percent)
+
+                    return True, "Progress updated"
                 else:
-                    return False, "Job not found"
+                    # Engine stopped - save final state and clean up
+                    final_progress = engine.get_progress()
+                    job.update_progress(final_progress)
+
+                    # CRITICAL: Save final progress BEFORE updating status
+                    # This ensures we don't lose progress data if app crashes during status update
+                    import logging
+                    storage_job = self.storage.get_job(job_id)
+                    if storage_job and storage_job.version != original_version:
+                        logging.warning(
+                            f"Concurrent modification detected for job {job_id} during final progress save: "
+                            f"original_version={original_version}, storage_version={storage_job.version}. "
+                            f"Proceeding with update (last write wins)."
+                        )
+
+                    logging.info(f"Saving final progress for job {job_id} before status change")
+                    self.storage.update_job(job)
+
+                    # Update version after first save
+                    original_version = job.version
+
+                    # Update status based on engine result
+                    if final_progress.get('status') == 'completed':
+                        job.update_status(Job.STATUS_COMPLETED)
+                    elif final_progress.get('status') == 'failed':
+                        job.update_status(Job.STATUS_FAILED)
+
+                    # Check for concurrent modifications before final status save
+                    storage_job = self.storage.get_job(job_id)
+                    if storage_job and storage_job.version != original_version:
+                        logging.warning(
+                            f"Concurrent modification detected for job {job_id} during final status save: "
+                            f"original_version={original_version}, storage_version={storage_job.version}. "
+                            f"Proceeding with final update (last write wins)."
+                        )
+
+                    # Save final status
+                    logging.info(f"Saving final status {job.status} for job {job_id}")
+                    self.storage.update_job(job)
+                    self._mark_job_list_dirty()  # Invalidate cache when status changes
+
+                    # Clean up engine and tracking data
+                    with self._engines_lock:
+                        del self.engines[job_id]
+                        if job_id in self.last_progress_save:
+                            del self.last_progress_save[job_id]
+                        # No need to track stop time since we're cleaning up immediately
+                        if job_id in self.engine_stop_times:
+                            del self.engine_stop_times[job_id]
+
+                    import logging
+                    logging.info(f"Engine cleanup: job {job_id} finished with status {job.status}")
+                    return True, f"Job completed with status: {job.status}"
 
             except Exception as e:
-                return False, f"Error deleting job: {str(e)}"
+                import logging
+                logging.error(f"Error updating job from engine {job_id}: {e}")
+
+                # Try to clean up engine if it's stopped (best effort)
+                try:
+                    with self._engines_lock:
+                        if job_id in self.engines:
+                            engine = self.engines[job_id]
+                            if not engine.is_running():
+                                logging.info(f"Cleaning up stopped engine for job {job_id} after exception")
+                                del self.engines[job_id]
+                                if job_id in self.last_progress_save:
+                                    del self.last_progress_save[job_id]
+                except Exception as cleanup_error:
+                    logging.error(f"Failed to cleanup engine after exception: {cleanup_error}")
+
+                return False, str(e)
+
+    def cleanup_stopped_engines(self) -> int:
+        """
+        Clean up stopped engines from memory (Task 2.1-2.5)
+
+        Removes engines that have been stopped for more than 5 minutes.
+        Should be called periodically by background monitor.
+
+        Returns:
+            Number of engines cleaned up
+        """
+        # TASK 7.4: Use write lock for engine cleanup (modifies engines dict)
+        with self._rwlock.write_lock():
+            current_time = time.time()
+            max_retention_time = 300  # 5 minutes
+            cleaned_count = 0
+
+            with self._engines_lock:
+                # Find engines to clean up
+                job_ids_to_cleanup = []
+                
+                for job_id in list(self.engines.keys()):
+                    engine = self.engines[job_id]
+                    
+                    # Check if engine is stopped
+                    if not engine.is_running():
+                        # Check stop time
+                        if job_id in self.engine_stop_times:
+                            stop_time = self.engine_stop_times[job_id]
+                            time_since_stop = current_time - stop_time
+                            
+                            if time_since_stop > max_retention_time:
+                                job_ids_to_cleanup.append(job_id)
+                                logging.info(f"Cleaning up stopped engine for job {job_id} (stopped {time_since_stop:.0f}s ago)")
+                        else:
+                            # No stop time recorded, mark it now
+                            self.engine_stop_times[job_id] = current_time
+                
+                # Clean up identified engines
+                for job_id in job_ids_to_cleanup:
+                    del self.engines[job_id]
+                    if job_id in self.engine_stop_times:
+                        del self.engine_stop_times[job_id]
+                    if job_id in self.last_progress_save:
+                        del self.last_progress_save[job_id]
+                    cleaned_count += 1
+            
+            if cleaned_count > 0:
+                logging.info(f"Cleaned up {cleaned_count} stopped engine(s)")
+            
+            return cleaned_count
 
     def _should_persist_progress(self, job_id: str, progress: Dict) -> bool:
         """
@@ -387,38 +539,75 @@ class JobManager:
         significant_change = abs(current_percent - last_percent) >= 1
 
         return time_elapsed or significant_change
-
-    def cleanup_stopped_engines(self):
+    
+    def list_jobs(self) -> List[Dict]:
         """
-        Clean up engines that have finished running
+        List all jobs with current status
+        Uses 1-second cache with dirty checking (Task 7.1)
 
-        NOTE: Currently unused. Reserved for future optimization where engines
-        are cleaned up periodically in the background rather than on-demand.
-        The current implementation cleans engines when get_job_status() is called.
+        Returns:
+            List of job info dictionaries
         """
-        with self._lock:
-            stopped_engines = []
+        # TASK 7.4: Use read lock for listing jobs (allows concurrent reads)
+        with self._rwlock.read_lock():
+            current_time = time.time()
 
-            with self._engines_lock:
-                for job_id, engine in self.engines.items():
-                    if not engine.is_running():
-                        stopped_engines.append(job_id)
+            # Check if cache is valid (less than 1 second old and not dirty)
+            if (not self._job_list_dirty and
+                self._job_list_cache is not None and
+                (current_time - self._job_list_cache_time) < 1.0):
+                return self._job_list_cache
 
-            for job_id in stopped_engines:
+            # Cache miss or expired - rebuild cache
+            jobs = self.storage.load_jobs()
+            result = []
+
+            for job in jobs:
+                job_info = self.get_job_status(job.id)
+                if job_info:
+                    result.append(job_info)
+
+            # Update cache
+            self._job_list_cache = result
+            self._job_list_cache_time = current_time
+            self._job_list_dirty = False
+
+            return result
+
+    def _mark_job_list_dirty(self):
+        """Mark job list cache as dirty (needs refresh)"""
+        self._job_list_dirty = True
+    
+    def delete_job(self, job_id: str) -> Tuple[bool, str]:
+        """
+        Delete a job
+
+        Args:
+            job_id: ID of job to delete
+
+        Returns:
+            Tuple of (success, message)
+        """
+        # TASK 7.4: Use write lock for job deletion
+        with self._rwlock.write_lock():
+            try:
+                # Check if job is running
                 with self._engines_lock:
-                    engine = self.engines[job_id]
+                    if job_id in self.engines and self.engines[job_id].is_running():
+                        return False, "Cannot delete a running job"
 
-                final_progress = engine.get_progress()
+                # Delete from storage
+                if self.storage.delete_job(job_id):
+                    # Clean up from engines dict if present
+                    with self._engines_lock:
+                        if job_id in self.engines:
+                            del self.engines[job_id]
+                    
+                    self._mark_job_list_dirty()
+                    return True, "Job deleted successfully"
+                else:
+                    return False, "Job not found"
 
-                # Update job in storage
-                job = self.storage.get_job(job_id)
-                if job:
-                    job.update_progress(final_progress)
-                    if final_progress.get('status') == 'completed':
-                        job.update_status(Job.STATUS_COMPLETED)
-                    elif final_progress.get('status') == 'failed':
-                        job.update_status(Job.STATUS_FAILED)
-                    self.storage.update_job(job)
+            except Exception as e:
+                return False, f"Error deleting job: {str(e)}"
 
-                with self._engines_lock:
-                    del self.engines[job_id]

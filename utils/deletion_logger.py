@@ -63,7 +63,8 @@ class DeletionLogger:
 
         except Exception as e:
             # Don't crash on logging errors, but print warning
-            print(f"Warning: Failed to log deletion: {e}")
+            import logging
+            logging.warning(f"Failed to log deletion: {e}")
             return False
 
     def log_deletion_start(self, mode: str, total_files: int = 0):
@@ -90,7 +91,8 @@ class DeletionLogger:
                 f.write(log_entry)
 
         except Exception as e:
-            print(f"Warning: Failed to log deletion start: {e}")
+            import logging
+            logging.warning(f"Failed to log deletion start: {e}")
 
     def log_deletion_complete(self, files_deleted: int, bytes_deleted: int, errors: int = 0):
         """
@@ -127,7 +129,8 @@ class DeletionLogger:
                 f.write(log_entry)
 
         except Exception as e:
-            print(f"Warning: Failed to log deletion complete: {e}")
+            import logging
+            logging.warning(f"Failed to log deletion complete: {e}")
 
     def log_verification_start(self):
         """Log the start of backup verification phase"""
@@ -139,7 +142,8 @@ class DeletionLogger:
                 f.write(log_entry)
 
         except Exception as e:
-            print(f"Warning: Failed to log verification start: {e}")
+            import logging
+            logging.warning(f"Failed to log verification start: {e}")
 
     def log_verification_result(self, passed: bool, details: str = ""):
         """
@@ -161,7 +165,8 @@ class DeletionLogger:
                 f.write(log_entry)
 
         except Exception as e:
-            print(f"Warning: Failed to log verification result: {e}")
+            import logging
+            logging.warning(f"Failed to log verification result: {e}")
 
     def get_deletion_count(self) -> int:
         """
@@ -183,7 +188,8 @@ class DeletionLogger:
             return count
 
         except Exception as e:
-            print(f"Warning: Failed to count deletions: {e}")
+            import logging
+            logging.warning(f"Failed to count deletions: {e}")
             return 0
 
     def get_deletion_log(self, limit: int = 100) -> List[Dict]:
@@ -256,7 +262,8 @@ class DeletionLogger:
             return entries
 
         except Exception as e:
-            print(f"Warning: Failed to read deletion log: {e}")
+            import logging
+            logging.warning(f"Failed to read deletion log: {e}")
             return []
 
     def get_total_bytes_deleted(self) -> int:
@@ -297,7 +304,8 @@ class DeletionLogger:
             return total
 
         except Exception as e:
-            print(f"Warning: Failed to calculate total bytes deleted: {e}")
+            import logging
+            logging.warning(f"Failed to calculate total bytes deleted: {e}")
             return 0
 
     def exists(self) -> bool:

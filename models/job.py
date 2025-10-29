@@ -35,7 +35,8 @@ class Job:
         progress: Optional[Dict[str, Any]] = None,
         settings: Optional[Dict[str, Any]] = None,
         created_at: Optional[str] = None,
-        updated_at: Optional[str] = None
+        updated_at: Optional[str] = None,
+        version: int = 0
     ):
         """
         Initialize a Job
@@ -51,6 +52,7 @@ class Job:
             settings: Job-specific settings (bandwidth_limit, etc.)
             created_at: ISO timestamp of creation
             updated_at: ISO timestamp of last update
+            version: Version counter for optimistic locking (increments on each update)
         """
         self.id = job_id or str(uuid.uuid4())
         self.name = name
@@ -76,6 +78,7 @@ class Job:
 
         self.created_at = created_at or datetime.now().isoformat()
         self.updated_at = updated_at or datetime.now().isoformat()
+        self.version = version
 
         # Validate on initialization
         self._validate()
@@ -156,6 +159,7 @@ class Job:
         """
         self.progress.update(progress_data)
         self.updated_at = datetime.now().isoformat()
+        self.version += 1
 
     def update_status(self, new_status: str):
         """
@@ -169,6 +173,7 @@ class Job:
 
         self.status = new_status
         self.updated_at = datetime.now().isoformat()
+        self.version += 1
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -187,7 +192,8 @@ class Job:
             'progress': self.progress.copy(),
             'settings': self.settings.copy(),
             'created_at': self.created_at,
-            'updated_at': self.updated_at
+            'updated_at': self.updated_at,
+            'version': self.version
         }
 
     @staticmethod
@@ -211,7 +217,8 @@ class Job:
             progress=data.get('progress'),
             settings=data.get('settings'),
             created_at=data.get('created_at'),
-            updated_at=data.get('updated_at')
+            updated_at=data.get('updated_at'),
+            version=data.get('version', 0)
         )
 
     # Deletion settings helper methods

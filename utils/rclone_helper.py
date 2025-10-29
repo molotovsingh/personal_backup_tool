@@ -56,7 +56,8 @@ def list_remotes() -> List[str]:
         return remotes
 
     except Exception as e:
-        print(f"Error listing remotes: {e}")
+        import logging
+        logging.error(f"Error listing remotes: {e}")
         return []
 
 
