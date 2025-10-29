@@ -19,6 +19,7 @@ settings.yaml
 # Temporary/Cache
 .npm-cache/
 test_backup/
+flask_sessions/
 
 # Compiled Python
 *.pyo
